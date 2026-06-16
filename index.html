@@ -1,0 +1,1385 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>⚖️ DD Офис</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        navy: { 950: '#020617', 900: '#0F172A', 800: '#1E293B', 700: '#334155', 600: '#475569' }
+      }
+    }
+  }
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { background: #0F172A; color: #f1f5f9; font-family: system-ui, -apple-system, sans-serif; min-height: 100vh; }
+  .card { background: #1E293B; border: 1px solid #334155; border-radius: 12px; }
+  .btn-primary { background: #3B82F6; color: white; padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+  .btn-primary:hover { background: #2563EB; }
+  .btn-primary:disabled { background: #475569; cursor: not-allowed; }
+  .btn-secondary { background: #334155; color: #f1f5f9; padding: 10px 20px; border-radius: 8px; border: 1px solid #475569; cursor: pointer; font-weight: 500; transition: background 0.2s; }
+  .btn-secondary:hover { background: #475569; }
+  .btn-ghost { background: transparent; color: #94a3b8; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; transition: all 0.2s; }
+  .btn-ghost:hover { background: #334155; color: #f1f5f9; }
+  .input { background: #0F172A; border: 1px solid #334155; color: #f1f5f9; padding: 10px 14px; border-radius: 8px; width: 100%; outline: none; font-size: 14px; }
+  .input:focus { border-color: #3B82F6; }
+  .input::placeholder { color: #64748b; }
+  select.input option { background: #1E293B; }
+  .tab-active { border-bottom: 2px solid #3B82F6; color: #3B82F6; }
+  .tab-inactive { border-bottom: 2px solid transparent; color: #94a3b8; }
+  .tab-inactive:hover { color: #f1f5f9; }
+  .agent-card { transition: all 0.2s; }
+  .agent-card:hover { border-color: #3B82F6; }
+  .status-active { background: #052e16; color: #4ade80; border: 1px solid #166534; }
+  .status-done { background: #0c1a2e; color: #60a5fa; border: 1px solid #1e3a5f; }
+  .status-paused { background: #2d2000; color: #fbbf24; border: 1px solid #78350f; }
+  .status-cancelled { background: #2d0a0a; color: #f87171; border: 1px solid #7f1d1d; }
+  .toast { position: fixed; bottom: 24px; right: 24px; z-index: 9999; padding: 14px 20px; border-radius: 10px; font-weight: 500; animation: slideIn 0.3s ease; max-width: 360px; }
+  .toast-success { background: #052e16; border: 1px solid #166534; color: #4ade80; }
+  .toast-error { background: #2d0a0a; border: 1px solid #7f1d1d; color: #f87171; }
+  .toast-info { background: #0c1a2e; border: 1px solid #1e3a5f; color: #60a5fa; }
+  @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  .drop-zone { border: 2px dashed #334155; border-radius: 12px; padding: 40px; text-align: center; transition: all 0.2s; cursor: pointer; }
+  .drop-zone:hover, .drop-zone.drag-over { border-color: #3B82F6; background: rgba(59,130,246,0.05); }
+  .spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.2); border-top-color: #3B82F6; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-bar { height: 6px; background: #334155; border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #3B82F6, #60a5fa); border-radius: 3px; transition: width 0.4s ease; }
+  .markdown h2 { font-size: 15px; font-weight: 700; color: #60a5fa; margin: 16px 0 8px; }
+  .markdown h3 { font-size: 13px; font-weight: 700; color: #94a3b8; margin: 12px 0 6px; }
+  .markdown ul { margin: 4px 0 4px 16px; }
+  .markdown li { margin: 2px 0; font-size: 13px; line-height: 1.6; }
+  .markdown p { font-size: 13px; line-height: 1.7; margin: 6px 0; }
+  .markdown table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+  .markdown th { background: #334155; padding: 6px 10px; text-align: left; }
+  .markdown td { border-bottom: 1px solid #334155; padding: 5px 10px; }
+  @media print {
+    .no-print { display: none !important; }
+    body { background: white; color: black; }
+    .card { background: white; border: 1px solid #ccc; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+<div id="toast-container"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// CONSTANTS
+// ══════════════════════════════════════════════════════════════
+
+const NOTION_PROJECTS_DB = 'ab8e71adc1c74031aeee11aaf34869fe';
+const NOTION_CONCLUSIONS_DB = 'c5d4665c72a24ba2b588827f5d2ad75f';
+
+const AGENTS = [
+  {
+    id: 'marketer', name: 'Маркетолог', icon: '📊', short: 'Рынок и доля',
+    systemPrompt: `Ты — Маркетолог DD-офиса. Специализация: анализ рынка, рыночной доли, клиентской базы и прогноза выручки.
+
+На основе предоставленных материалов выполни:
+1. Оцени размер и динамику рынка (TAM/SAM/SOM)
+2. Определи рыночную долю компании и тренды
+3. Проанализируй клиентскую базу (концентрация, retention, NPS если есть)
+4. Дай прогноз выручки на 3-5 лет (3 сценария: пессимистичный/базовый/оптимистичный)
+5. Выяви конкурентную позицию и устойчивость доли
+
+Формат ответа строго:
+## ПОЗИЦИЯ
+[2-3 предложения — ключевой тезис маркетолога]
+
+## КРАСНЫЕ ФЛАГИ
+• [флаг 1]
+• [флаг 2]
+
+## РИСКИ
+• [риск] — $X млн
+• [риск] — $X млн
+
+## ОТКРЫТЫЕ ВОПРОСЫ
+• [вопрос 1]
+• [вопрос 2]
+
+## РЕКОМЕНДАЦИЯ
+[ПОКУПАТЬ / ДЕРЖАТЬ / НЕ РЕКОМЕНДУЮ] — [обоснование 2-3 предложения]`
+  },
+  {
+    id: 'financier', name: 'Финансист', icon: '💰', short: 'Оценка и финмодель',
+    systemPrompt: `Ты — Финансист DD-офиса. Специализация: верификация финансовых данных, оценка стоимости тремя методами, финансовая модель.
+
+ФАЗА 0 — Верификация входных данных:
+- Иерархия источников: аудированная отчётность > банковские выписки > НДС > управленка
+- Проверь выручку (сезонность, разовые статьи, МФО)
+- Нормализуй EBITDA (исключи разовые, скорректируй собственническую зарплату)
+- Capex: отложенный vs. плановый; Долг: скрытые/забалансовые обязательства
+
+ФАЗА 1 — Оценка тремя методами:
+- DCF: WACC 12-18%, горизонт 5 лет, 3 сценария (пессимистичный / базовый / оптимистичный)
+- EV/EBITDA: отраслевые мультипликаторы аналогов
+- M&A: сопоставимые сделки за последние 3 года
+- Football field с итоговым диапазоном оценки
+
+Формат ответа строго:
+## ПОЗИЦИЯ
+[ключевой финансовый тезис + диапазон оценки $млн]
+
+## КРАСНЫЕ ФЛАГИ
+• [флаг 1]
+• [флаг 2]
+
+## ДИАПАЗОН ОЦЕНКИ
+| Метод | Пессимистичный | Базовый | Оптимистичный |
+|---|---|---|---|
+| DCF | $X млн | $Y млн | $Z млн |
+| EV/EBITDA | $X млн | $Y млн | $Z млн |
+| M&A аналоги | $X млн | $Y млн | $Z млн |
+| **Итого** | **$X млн** | **$Y млн** | **$Z млн** |
+
+## РИСКИ
+• [риск 1]
+• [риск 2]
+
+## ОТКРЫТЫЕ ВОПРОСЫ
+• [вопрос 1]
+
+## РЕКОМЕНДАЦИЯ
+[вывод + целевая цена]`
+  },
+  {
+    id: 'auditor', name: 'Аудитор', icon: '🔍', short: 'Отчётность и обязательства',
+    systemPrompt: `Ты — Аудитор DD-офиса. Специализация: проверка финансовой отчётности, выявление скрытых обязательств и манипуляций.
+
+Проверь:
+1. Качество учётной политики (МСФО/НСФО соответствие)
+2. Манипуляции с выручкой и расходами (канальный стаффинг, капитализация расходов)
+3. Дебиторская задолженность (качество, резервы, концентрация)
+4. Запасы (методы оценки, устаревшие позиции)
+5. Забалансовые обязательства (аренда IFRS 16, поручительства, гарантии, условные обязательства)
+6. Связанные стороны и нетипичные транзакции
+
+Формат ответа строго:
+## ПОЗИЦИЯ
+[ключевой тезис о качестве отчётности]
+
+## КРАСНЫЕ ФЛАГИ
+• [флаг 1]
+• [флаг 2]
+
+## СКРЫТЫЕ ОБЯЗАТЕЛЬСТВА
+• [обязательство] — оценка $X млн
+• [обязательство] — оценка $X млн
+
+## РИСКИ
+• [риск 1]
+
+## ОТКРЫТЫЕ ВОПРОСЫ
+• [что нужно запросить]
+
+## РЕКОМЕНДАЦИЯ
+[вывод]`
+  },
+  {
+    id: 'lawyer', name: 'Юрист', icon: '⚖️', short: 'Правовая структура',
+    systemPrompt: `Ты — Юрист DD-офиса. Специализация: корпоративная структура, правовые риски, структура сделки.
+
+Проанализируй:
+1. Корпоративную структуру (UBO, SPV, офшорные компании, реальные бенефициары)
+2. Change of Control риски (ключевые контракты с CoC-оговорками)
+3. Лицензии и разрешения (наличие, сроки, условия передачи)
+4. Антимонопольные ограничения и обязательные согласования
+5. Судебные споры и административные производства
+6. Рекомендуемую структуру сделки: SPA, escrow, indemnity, W&R insurance, MAC
+
+Формат ответа строго:
+## ПОЗИЦИЯ
+[ключевой правовой тезис]
+
+## КРАСНЫЕ ФЛАГИ
+• [флаг 1]
+• [флаг 2]
+
+## ПРАВОВЫЕ РИСКИ
+• [риск] — [степень существенности]
+• [риск] — [степень существенности]
+
+## РЕКОМЕНДУЕМАЯ СТРУКТУРА СДЕЛКИ
+[asset deal vs. share deal, ключевые механизмы защиты]
+
+## ОТКРЫТЫЕ ВОПРОСЫ
+• [что запросить у продавца]
+
+## РЕКОМЕНДАЦИЯ
+[вывод]`
+  },
+  {
+    id: 'tax', name: 'Налоговый', icon: '📑', short: 'Налоговые риски',
+    systemPrompt: `Ты — Налоговый советник DD-офиса. Специализация: налоговые риски, ТЦО, СИДН, налоговый "хвост".
+
+Проанализируй:
+1. Налоговую историю: открытые периоды, акты КГД/ФНС, решения судов
+2. ТЦО (Transfer Pricing): внутригрупповые займы, роялти, управленческие услуги
+3. СИДН и PPT-тест: обоснованность льготных ставок WHT, substance в холдинговых юрисдикциях
+4. Реквалификация операций: займы → дивиденды, роялти → скрытое распределение прибыли
+5. Налоговый хвост: расчёт диапазона претензий с пенями и штрафами
+
+Формат ответа строго:
+## ПОЗИЦИЯ
+[ключевой налоговый тезис]
+
+## КРАСНЫЕ ФЛАГИ
+• [флаг 1]
+• [флаг 2]
+
+## НАЛОГОВЫЙ ХВОСТ
+| Риск | Сумма основного долга | С пенями и штрафами |
+|---|---|---|
+| [статья] | $X млн | $Y млн |
+| **Итого** | **$X млн** | **$Y млн** |
+
+Диапазон: **минимум $X млн — максимум $Y млн**
+
+## ОТКРЫТЫЕ ВОПРОСЫ
+• [что запросить]
+
+## РЕКОМЕНДАЦИЯ
+[asset deal vs. share deal, условия indemnity]`
+  },
+  {
+    id: 'specialist', name: 'Профильный', icon: '🏭', short: 'Операции и активы',
+    systemPrompt: `Ты — Профильный специалист DD-офиса. Специализация: операционная реальность отрасли, состояние активов, capex-gap.
+
+Проанализируй:
+1. Реальное состояние активов (физический износ, capex-gap между заявленным и реальным)
+2. Производственные показатели: мощность, загрузка, KPI vs. заявленные продавцом
+3. Качество менеджмента (key person риски, текучесть кадров)
+4. Цепочку поставок: зависимости, контрактная база, логистика
+5. Регуляторные и отраслевые риски (лицензии, квоты, экология, промбезопасность)
+6. Технологическое отставание и необходимость модернизации
+
+Формат ответа строго:
+## ПОЗИЦИЯ
+[операционный тезис]
+
+## КРАСНЫЕ ФЛАГИ
+• [флаг 1]
+• [флаг 2]
+
+## CAPEX-GAP
+Оценка недоинвестирования: **$X — $Y млн**
+• [категория] — $X млн
+• [категория] — $X млн
+
+## ОПЕРАЦИОННЫЕ РИСКИ
+• [риск 1]
+• [риск 2]
+
+## ОТКРЫТЫЕ ВОПРОСЫ
+• [что проверить на объекте]
+
+## РЕКОМЕНДАЦИЯ
+[операционный вывод]`
+  },
+  {
+    id: 'risk', name: 'Рисковик', icon: '🛡️', short: 'Матрица рисков',
+    systemPrompt: `Ты — Риск-менеджер DD-офиса. Специализация: синтез всех рисков, матрица рисков, риск-хвост в $, структура защиты.
+
+Ты работаешь последним перед CEO — после Маркетолога, Финансиста, Аудитора, Юриста, Налогового и Профильного специалиста. Твои заключения уже доступны в контексте.
+
+Твоя задача:
+1. Собери все риски из заключений команды (финансовые, юридические, налоговые, операционные, рыночные)
+2. Построй матрицу: Вероятность (Низкая 10% / Средняя 40% / Высокая 70%) × Ущерб ($млн)
+3. Рассчитай риск-хвост: сумма взвешенных рисков (вероятность × ущерб)
+4. Предложи структуру защиты покупателя
+5. Дай оценку риск-профиля сделки
+
+Формат ответа строго:
+## МАТРИЦА РИСКОВ
+| Риск | Категория | Вероятность | Ущерб $млн | Взвешенный $млн |
+|---|---|---|---|---|
+| [риск 1] | [категория] | Высокая 70% | $X | $Y |
+| [риск 2] | [категория] | Средняя 40% | $X | $Y |
+| **ИТОГО** | | | | **$Z млн** |
+
+## РИСК-ХВОСТ
+Совокупный взвешенный риск: **$X млн**
+
+## СТРУКТУРА ЗАЩИТЫ ПОКУПАТЕЛЯ
+**Escrow:** $X млн на Y месяцев — покрывает [что]
+**Price adjustment:** [механизм пересчёта цены]
+**Indemnity:** периметр — [что], cap — $X млн, срок — Y лет
+**Conditions Precedent:**
+• [условие 1]
+• [условие 2]
+**Walk-away триггер:** [при каких условиях выходить из сделки]
+
+## РИСК-ПРОФИЛЬ СДЕЛКИ
+[HIGH / MEDIUM / LOW RISK] — [обоснование 3-4 предложения]`
+  },
+  {
+    id: 'ceo', name: 'CEO', icon: '👔', short: 'Итоговый вердикт',
+    systemPrompt: `Ты — CEO DD-офиса. Твоя задача: синтез всех заключений команды и итоговый вердикт по сделке.
+
+Ты получаешь заключения всех 7 агентов: Маркетолог, Финансист, Аудитор, Юрист, Налоговый, Профильный специалист, Рисковик.
+
+Дай:
+1. Финальный вердикт с чёткой рекомендацией
+2. Целевую цену сделки (диапазон $млн) с обоснованием
+3. Синтез позиций команды (1 предложение на агента)
+4. ТОП-3 риска с механизмами защиты
+5. Conditions Precedent — что обязательно до закрытия
+6. Конкретные следующие шаги
+
+Формат ответа строго:
+## ✅ ВЕРДИКТ CEO
+**[РЕКОМЕНДУЮ / НЕ РЕКОМЕНДУЮ / УСЛОВНО РЕКОМЕНДУЮ]**
+[2-3 предложения с обоснованием]
+
+## ЦЕЛЕВАЯ ЦЕНА
+**Диапазон: $X — $Y млн**
+Цена входа: $Z млн
+Обоснование: [3-4 предложения]
+
+## ГОЛОСА КОМАНДЫ
+📊 **Маркетолог:** [1 предложение]
+💰 **Финансист:** [1 предложение + диапазон оценки]
+🔍 **Аудитор:** [1 предложение]
+⚖️ **Юрист:** [1 предложение]
+📑 **Налоговый:** [1 предложение + риск-хвост $]
+🏭 **Профильный:** [1 предложение + capex-gap $]
+🛡️ **Рисковик:** [1 предложение + риск-хвост $]
+
+## ТОП-3 РИСКА И ЗАЩИТА
+1. **[Риск]** → [Механизм защиты]
+2. **[Риск]** → [Механизм защиты]
+3. **[Риск]** → [Механизм защиты]
+
+## CONDITIONS PRECEDENT
+• [условие 1]
+• [условие 2]
+• [условие 3]
+
+## СЛЕДУЮЩИЕ ШАГИ
+1. [действие] — [срок]
+2. [действие] — [срок]
+3. [действие] — [срок]`
+  }
+];
+
+const STATUS_LABELS = { 'Активный': 'Активный', 'Завершён': 'Завершён', 'Пауза': 'Пауза', 'Отменён': 'Отменён' };
+const DEAL_TYPES = ['M&A покупка', 'M&A продажа', 'Инвестиции / PE', 'Реструктуризация', 'Оценка стоимости', 'Иное'];
+const INDUSTRIES = ['Горнодобывающая', 'Металлургия', 'Нефть и газ', 'АПК', 'IT / Технологии', 'Финансы / Банки', 'Недвижимость', 'Ритейл', 'Производство', 'Медицина', 'Энергетика', 'Транспорт', 'Иное'];
+const DEPTHS = ['Экспресс-DD', 'Стандартный DD', 'Полный DD'];
+
+// ══════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════
+
+let state = {
+  page: 'dashboard',
+  projects: [],
+  currentProjectId: null,
+  currentTab: 'overview',
+  newProject: { step: 1, data: {}, files: [] },
+  runningAgent: null,
+  settings: { claudeKey: '', notionToken: '', claudeModel: 'claude-sonnet-4-6' }
+};
+
+function loadState() {
+  try {
+    const saved = localStorage.getItem('dd-office-v2');
+    if (saved) { const s = JSON.parse(saved); state.projects = s.projects || []; }
+    const settings = localStorage.getItem('dd-office-settings-v2');
+    if (settings) state.settings = { ...state.settings, ...JSON.parse(settings) };
+  } catch (e) {}
+}
+
+function saveState() {
+  try {
+    localStorage.setItem('dd-office-v2', JSON.stringify({ projects: state.projects }));
+    localStorage.setItem('dd-office-settings-v2', JSON.stringify(state.settings));
+  } catch (e) {}
+}
+
+function generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
+
+function getProject() { return state.projects.find(p => p.id === state.currentProjectId); }
+
+function getProgress(project) {
+  const done = AGENTS.filter(a => project.conclusions?.[a.id]?.text).length;
+  return Math.round((done / AGENTS.length) * 100);
+}
+
+function statusClass(status) {
+  if (status === 'Активный') return 'status-active';
+  if (status === 'Завершён') return 'status-done';
+  if (status === 'Пауза') return 'status-paused';
+  if (status === 'Отменён') return 'status-cancelled';
+  return 'status-active';
+}
+
+// ══════════════════════════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════════════════════════
+
+function showToast(msg, type = 'info', duration = 4000) {
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), duration);
+}
+
+// ══════════════════════════════════════════════════════════════
+// FILE EXTRACTION
+// ══════════════════════════════════════════════════════════════
+
+async function extractText(file) {
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (ext === 'txt') {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = e => resolve(e.target.result);
+      r.onerror = reject;
+      r.readAsText(file, 'UTF-8');
+    });
+  }
+  if (ext === 'pdf') {
+    if (typeof pdfjsLib === 'undefined') throw new Error('PDF.js не загружен');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    let text = `[PDF: ${file.name}, ${pdf.numPages} стр.]\n`;
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const pg = await pdf.getPage(i);
+      const ct = await pg.getTextContent();
+      text += ct.items.map(it => it.str).join(' ') + '\n';
+    }
+    return text;
+  }
+  if (ext === 'xlsx' || ext === 'xls') {
+    if (typeof XLSX === 'undefined') throw new Error('SheetJS не загружен');
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    let text = `[Excel: ${file.name}]\n`;
+    wb.SheetNames.forEach(sn => {
+      text += `\n=== Лист: ${sn} ===\n`;
+      text += XLSX.utils.sheet_to_csv(wb.Sheets[sn]);
+    });
+    return text;
+  }
+  if (ext === 'docx') {
+    if (typeof mammoth === 'undefined') throw new Error('Mammoth не загружен');
+    const buf = await file.arrayBuffer();
+    const res = await mammoth.extractRawText({ arrayBuffer: buf });
+    return `[Word: ${file.name}]\n` + res.value;
+  }
+  throw new Error(`Формат .${ext} не поддерживается`);
+}
+
+// ══════════════════════════════════════════════════════════════
+// CLAUDE API
+// ══════════════════════════════════════════════════════════════
+
+async function callClaude(systemPrompt, userContent) {
+  const key = state.settings.claudeKey;
+  if (!key) throw new Error('API ключ не настроен. Перейдите в ⚙️ Настройки.');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-allow-browser': 'true',
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: state.settings.claudeModel || 'claude-sonnet-4-6',
+      max_tokens: 4000,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userContent }]
+    })
+  });
+  if (!res.ok) {
+    let msg = 'Ошибка Claude API';
+    try { const err = await res.json(); msg = err.error?.message || msg; } catch(e) {}
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  return data.content[0].text;
+}
+
+function buildContext(project) {
+  let ctx = `ПРОЕКТ: ${project.name}\n`;
+  if (project.client) ctx += `КЛИЕНТ: ${project.client}\n`;
+  if (project.dealType) ctx += `ТИП СДЕЛКИ: ${project.dealType}\n`;
+  if (project.industry) ctx += `ОТРАСЛЬ: ${project.industry}\n`;
+  if (project.depth) ctx += `ГЛУБИНА АНАЛИЗА: ${project.depth}\n`;
+  if (project.sellerPrice) ctx += `ЦЕНА ПРОДАВЦА: $${project.sellerPrice} млн\n`;
+  if (project.targetPrice) ctx += `ЦЕЛЕВАЯ ЦЕНА: $${project.targetPrice} млн\n`;
+  ctx += `\nЗАДАЧА:\n${project.task || 'Провести полный DD анализ'}\n`;
+  if (project.files?.length) {
+    ctx += `\n${'='.repeat(50)}\nМАТЕРИАЛЫ ПРОЕКТА:\n${'='.repeat(50)}\n`;
+    project.files.forEach(f => {
+      ctx += `\n[Файл: ${f.name}]\n${(f.text || '').substring(0, 15000)}\n`;
+    });
+  }
+  return ctx;
+}
+
+function buildContextWithConclusions(project, upToIndex) {
+  let ctx = buildContext(project);
+  const done = AGENTS.slice(0, upToIndex).filter(a => project.conclusions?.[a.id]?.text);
+  if (done.length) {
+    ctx += `\n${'='.repeat(50)}\nЗАКЛЮЧЕНИЯ КОМАНДЫ:\n${'='.repeat(50)}\n`;
+    done.forEach(a => {
+      ctx += `\n${a.icon} ${a.name.toUpperCase()}:\n${project.conclusions[a.id].text}\n`;
+    });
+  }
+  return ctx;
+}
+
+async function runAgent(project, agentId) {
+  const agentIndex = AGENTS.findIndex(a => a.id === agentId);
+  const agent = AGENTS[agentIndex];
+  const needsConclusions = agentId === 'risk' || agentId === 'ceo';
+  const ctx = needsConclusions ? buildContextWithConclusions(project, agentIndex) : buildContext(project);
+  const text = await callClaude(agent.systemPrompt, ctx);
+  if (!project.conclusions) project.conclusions = {};
+  project.conclusions[agentId] = { text, timestamp: new Date().toISOString() };
+  saveState();
+}
+
+async function runAllAgents(projectId) {
+  if (state.runningAgent) return;
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  if (!state.settings.claudeKey) { showToast('Сначала добавьте Claude API ключ в Настройках', 'error'); navigate('settings'); return; }
+
+  for (let i = 0; i < AGENTS.length; i++) {
+    const agent = AGENTS[i];
+    state.runningAgent = agent.id;
+    render();
+    try {
+      await runAgent(project, agent.id);
+      showToast(`${agent.icon} ${agent.name}: заключение получено`, 'success', 2000);
+    } catch (e) {
+      showToast(`${agent.icon} ${agent.name}: ошибка — ${e.message}`, 'error', 5000);
+      state.runningAgent = null;
+      render();
+      return;
+    }
+  }
+  state.runningAgent = null;
+  project.status = 'Завершён';
+  saveState();
+  showToast('✅ DD анализ завершён! Вердикт CEO готов.', 'success', 6000);
+  state.currentTab = 'report';
+  render();
+}
+
+async function runSingleAgent(projectId, agentId) {
+  if (state.runningAgent) return;
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  if (!state.settings.claudeKey) { showToast('Сначала добавьте Claude API ключ в Настройках', 'error'); navigate('settings'); return; }
+  const agent = AGENTS.find(a => a.id === agentId);
+  state.runningAgent = agentId;
+  render();
+  try {
+    await runAgent(project, agentId);
+    showToast(`${agent.icon} ${agent.name}: заключение получено`, 'success');
+  } catch (e) {
+    showToast(`Ошибка: ${e.message}`, 'error', 5000);
+  }
+  state.runningAgent = null;
+  render();
+}
+
+// ══════════════════════════════════════════════════════════════
+// NOTION
+// ══════════════════════════════════════════════════════════════
+
+async function notionReq(endpoint, method, body) {
+  const token = state.settings.notionToken;
+  if (!token) throw new Error('Notion токен не настроен. Перейдите в Настройки.');
+  const url = `https://api.notion.com/v1${endpoint}`;
+  const proxy = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+  const res = await fetch(proxy, {
+    method,
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Notion-Version': '2022-06-28'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  if (!res.ok) {
+    let msg = 'Ошибка Notion API';
+    try { const e = await res.json(); msg = e.message || msg; } catch(err) {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+function notionText(str) {
+  if (!str) return [];
+  const chunks = [];
+  for (let i = 0; i < str.length; i += 2000) chunks.push({ type: 'text', text: { content: str.slice(i, i + 2000) } });
+  return chunks;
+}
+
+async function saveToNotion(project) {
+  const props = {
+    'Проект': { title: [{ text: { content: project.name } }] },
+    'Статус': { select: { name: project.status || 'Активный' } }
+  };
+  if (project.client) props['Клиент'] = { rich_text: notionText(project.client) };
+  if (project.task) props['Задача'] = { rich_text: notionText(project.task.substring(0, 2000)) };
+  if (project.dealType) props['Тип сделки'] = { select: { name: project.dealType } };
+  if (project.industry) props['Отрасль'] = { select: { name: project.industry } };
+  if (project.depth) props['Глубина анализа'] = { select: { name: project.depth } };
+  if (project.sellerPrice) props['Цена продавца $млн'] = { number: parseFloat(project.sellerPrice) };
+  if (project.targetPrice) props['Целевая цена $млн'] = { number: parseFloat(project.targetPrice) };
+  props['Прогресс %'] = { number: getProgress(project) };
+  props['Заключений агентов'] = { number: AGENTS.filter(a => project.conclusions?.[a.id]?.text).length };
+
+  const projectPage = await notionReq('/pages', 'POST', {
+    parent: { database_id: NOTION_PROJECTS_DB },
+    properties: props
+  });
+  const notionId = projectPage.id;
+  project.notionId = notionId;
+  saveState();
+
+  const completed = AGENTS.filter(a => project.conclusions?.[a.id]?.text);
+  for (const agent of completed) {
+    const text = project.conclusions[agent.id].text;
+    const blocks = [];
+    for (let i = 0; i < text.length; i += 2000) {
+      blocks.push({ object: 'block', type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: text.slice(i, i + 2000) } }] } });
+    }
+    await notionReq('/pages', 'POST', {
+      parent: { database_id: NOTION_CONCLUSIONS_DB },
+      properties: {
+        'Заголовок': { title: [{ text: { content: `${project.name} — ${agent.name}` } }] },
+        'Агент': { select: { name: agent.name } },
+        'Проект': { relation: [{ id: notionId }] },
+        'Статус': { select: { name: 'Получено' } }
+      },
+      children: blocks.slice(0, 100)
+    });
+  }
+  return notionId;
+}
+
+// ══════════════════════════════════════════════════════════════
+// PRINT / EXPORT
+// ══════════════════════════════════════════════════════════════
+
+function printReport(project) {
+  const date = new Date().toLocaleDateString('ru-RU');
+  let html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>DD — ${project.name}</title><style>
+    body{font-family:'Times New Roman',serif;margin:40px;color:#000;font-size:13px;}
+    h1{font-size:20px;text-align:center;border-bottom:2px solid #1a1a6e;padding-bottom:12px;color:#1a1a6e;}
+    h2{font-size:15px;color:#1a1a6e;margin:20px 0 8px;border-bottom:1px solid #ddd;padding-bottom:4px;}
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0;font-size:12px;}
+    .meta-item{background:#f8f8f8;padding:8px 12px;border-left:3px solid #1a1a6e;}
+    .meta-label{color:#666;font-size:11px;}
+    .section{margin:24px 0;page-break-inside:avoid;}
+    .agent-header{background:#1a1a6e;color:white;padding:8px 14px;font-weight:bold;font-size:13px;margin-bottom:0;}
+    .conclusion{white-space:pre-wrap;line-height:1.7;padding:12px;border:1px solid #ddd;border-top:none;font-size:12px;}
+    .ceo-box{background:#fffbeb;border:2px solid #f59e0b;padding:16px;margin:24px 0;}
+    .ceo-title{font-size:16px;font-weight:bold;color:#92400e;margin-bottom:10px;}
+    table{width:100%;border-collapse:collapse;margin:8px 0;font-size:11px;}
+    th{background:#1a1a6e;color:white;padding:5px 8px;text-align:left;}
+    td{border-bottom:1px solid #ddd;padding:4px 8px;}
+    @page{margin:20mm;}
+  </style></head><body>
+  <h1>⚖️ DD ОТЧЁТ: ${escHtml(project.name)}</h1>
+  <div class="meta">
+    <div class="meta-item"><div class="meta-label">Клиент</div>${escHtml(project.client||'—')}</div>
+    <div class="meta-item"><div class="meta-label">Тип сделки</div>${escHtml(project.dealType||'—')}</div>
+    <div class="meta-item"><div class="meta-label">Отрасль</div>${escHtml(project.industry||'—')}</div>
+    <div class="meta-item"><div class="meta-label">Глубина анализа</div>${escHtml(project.depth||'—')}</div>
+    <div class="meta-item"><div class="meta-label">Цена продавца</div>${project.sellerPrice ? '$'+project.sellerPrice+' млн' : '—'}</div>
+    <div class="meta-item"><div class="meta-label">Целевая цена</div>${project.targetPrice ? '$'+project.targetPrice+' млн' : '—'}</div>
+    <div class="meta-item"><div class="meta-label">Дата отчёта</div>${date}</div>
+    <div class="meta-item"><div class="meta-label">Статус</div>${escHtml(project.status||'Активный')}</div>
+  </div>`;
+
+  AGENTS.filter(a => a.id !== 'ceo').forEach(agent => {
+    const c = project.conclusions?.[agent.id];
+    if (!c?.text) return;
+    html += `<div class="section">
+      <div class="agent-header">${agent.icon} ${agent.name}</div>
+      <div class="conclusion">${escHtml(c.text)}</div>
+    </div>`;
+  });
+
+  const ceo = project.conclusions?.ceo;
+  if (ceo?.text) {
+    html += `<div class="ceo-box">
+      <div class="ceo-title">👔 ВЕРДИКТ CEO</div>
+      <div style="white-space:pre-wrap;font-size:13px;line-height:1.7">${escHtml(ceo.text)}</div>
+    </div>`;
+  }
+  html += '</body></html>';
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 500);
+}
+
+function downloadTxt(project) {
+  let text = `DD ОТЧЁТ: ${project.name}\n${'='.repeat(60)}\n`;
+  text += `Дата: ${new Date().toLocaleDateString('ru-RU')}\n`;
+  if (project.client) text += `Клиент: ${project.client}\n`;
+  if (project.dealType) text += `Тип сделки: ${project.dealType}\n`;
+  if (project.industry) text += `Отрасль: ${project.industry}\n`;
+  text += '\n';
+  AGENTS.forEach(agent => {
+    const c = project.conclusions?.[agent.id];
+    if (!c?.text) return;
+    text += `\n${'═'.repeat(60)}\n${agent.icon} ${agent.name.toUpperCase()}\n${'═'.repeat(60)}\n${c.text}\n`;
+  });
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `DD_${project.name}_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+function escHtml(str) {
+  return String(str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function renderMarkdown(text) {
+  if (!text) return '';
+  let html = escHtml(text);
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/^• (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, s => `<ul>${s}</ul>`);
+  html = html.replace(/\|(.+)\|/g, (m, inner) => {
+    const cells = inner.split('|').map(c => c.trim());
+    return '<tr>' + cells.map(c => {
+      if (c.match(/^[-:]+$/)) return '';
+      return `<td>${c}</td>`;
+    }).filter(Boolean).join('') + '</tr>';
+  });
+  html = html.replace(/(<tr>.*<\/tr>\n?)+/g, s => `<table>${s}</table>`);
+  html = html.replace(/\n/g, '<br>');
+  return html;
+}
+
+// ══════════════════════════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════════════════════════
+
+function navigate(page, opts = {}) {
+  state.page = page;
+  if (opts.projectId) state.currentProjectId = opts.projectId;
+  if (opts.tab) state.currentTab = opts.tab;
+  if (page === 'new-project') state.newProject = { step: 1, data: {}, files: [] };
+  render();
+  window.scrollTo(0, 0);
+}
+
+// ══════════════════════════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════════════════════════
+
+function render() {
+  const app = document.getElementById('app');
+  let html = renderNav();
+  if (state.page === 'dashboard') html += renderDashboard();
+  else if (state.page === 'settings') html += renderSettings();
+  else if (state.page === 'new-project') html += renderNewProject();
+  else if (state.page === 'project') html += renderProject();
+  app.innerHTML = html;
+  attachListeners();
+}
+
+function renderNav() {
+  const links = [
+    { page: 'dashboard', label: '📁 Проекты' },
+    { page: 'settings', label: '⚙️ Настройки' }
+  ];
+  const hasKey = state.settings.claudeKey;
+  return `<nav class="border-b border-slate-700 px-6 py-3 flex items-center justify-between sticky top-0 z-50 no-print" style="background:#0F172A">
+    <button onclick="navigate('dashboard')" class="text-lg font-bold text-white hover:text-blue-400 transition-colors">⚖️ DD Офис</button>
+    <div class="flex items-center gap-2">
+      ${links.map(l => `<button onclick="navigate('${l.page}')" class="btn-ghost text-sm ${state.page === l.page ? 'text-blue-400' : ''}">${l.label}</button>`).join('')}
+      <div class="ml-3 w-2 h-2 rounded-full ${hasKey ? 'bg-green-500' : 'bg-red-500'}" title="${hasKey ? 'API настроен' : 'Нет API ключа'}"></div>
+    </div>
+  </nav>`;
+}
+
+// ── DASHBOARD ──
+
+function renderDashboard() {
+  const total = state.projects.length;
+  const active = state.projects.filter(p => p.status === 'Активный').length;
+  const done = state.projects.filter(p => p.status === 'Завершён').length;
+  return `<div class="p-6 max-w-5xl mx-auto">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 class="text-2xl font-bold text-white">Проекты DD</h1>
+        <p class="text-slate-400 text-sm mt-1">Due Diligence офис</p>
+      </div>
+      <button onclick="navigate('new-project')" class="btn-primary">+ Новый проект</button>
+    </div>
+    <div class="grid grid-cols-3 gap-4 mb-6">
+      <div class="card p-4 text-center">
+        <div class="text-3xl font-bold text-white">${total}</div>
+        <div class="text-slate-400 text-sm mt-1">Всего проектов</div>
+      </div>
+      <div class="card p-4 text-center">
+        <div class="text-3xl font-bold text-green-400">${active}</div>
+        <div class="text-slate-400 text-sm mt-1">Активных</div>
+      </div>
+      <div class="card p-4 text-center">
+        <div class="text-3xl font-bold text-blue-400">${done}</div>
+        <div class="text-slate-400 text-sm mt-1">Завершённых</div>
+      </div>
+    </div>
+    ${total === 0 ? renderEmptyState() : renderProjectList()}
+  </div>`;
+}
+
+function renderEmptyState() {
+  return `<div class="card p-16 text-center">
+    <div class="text-6xl mb-4">⚖️</div>
+    <h2 class="text-xl font-bold text-white mb-2">DD Офис готов к работе</h2>
+    <p class="text-slate-400 mb-6 max-w-md mx-auto">Создайте первый проект, загрузите материалы и запустите анализ командой из 8 AI-агентов</p>
+    ${!state.settings.claudeKey ? `<div class="bg-yellow-900/30 border border-yellow-700 rounded-lg p-3 mb-4 text-yellow-300 text-sm max-w-sm mx-auto">⚠️ Сначала добавьте Claude API ключ в <button onclick="navigate('settings')" class="underline">Настройках</button></div>` : ''}
+    <button onclick="navigate('new-project')" class="btn-primary">+ Создать первый проект</button>
+  </div>`;
+}
+
+function renderProjectList() {
+  return `<div class="space-y-3">
+    ${state.projects.map(p => {
+      const progress = getProgress(p);
+      const done = AGENTS.filter(a => p.conclusions?.[a.id]?.text).length;
+      return `<div class="card p-4 hover:border-blue-500 transition-colors cursor-pointer" onclick="navigate('project', {projectId:'${p.id}',tab:'overview'})">
+        <div class="flex items-start justify-between">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="font-bold text-white text-base">${escHtml(p.name)}</span>
+              <span class="text-xs px-2 py-0.5 rounded-full ${statusClass(p.status)}">${p.status||'Активный'}</span>
+              ${p.depth ? `<span class="text-xs px-2 py-0.5 rounded-full bg-navy-700 text-slate-300 border border-slate-600">${p.depth}</span>` : ''}
+            </div>
+            <div class="flex items-center gap-4 text-sm text-slate-400">
+              ${p.client ? `<span>👤 ${escHtml(p.client)}</span>` : ''}
+              ${p.industry ? `<span>🏭 ${escHtml(p.industry)}</span>` : ''}
+              ${p.sellerPrice ? `<span>💰 $${p.sellerPrice} млн</span>` : ''}
+            </div>
+          </div>
+          <div class="ml-4 text-right flex-shrink-0">
+            <div class="text-sm text-slate-400 mb-1">${done}/8 агентов</div>
+            <div class="progress-bar w-24"><div class="progress-fill" style="width:${progress}%"></div></div>
+            <div class="text-xs text-slate-500 mt-1">${progress}%</div>
+          </div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+// ── SETTINGS ──
+
+function renderSettings() {
+  const s = state.settings;
+  return `<div class="p-6 max-w-2xl mx-auto">
+    <h1 class="text-2xl font-bold text-white mb-6">⚙️ Настройки</h1>
+    <div class="card p-6 space-y-6">
+      <div>
+        <h2 class="text-base font-semibold text-white mb-4">Claude API</h2>
+        <div class="space-y-3">
+          <div>
+            <label class="text-sm text-slate-400 block mb-1">API Ключ</label>
+            <div class="flex gap-2">
+              <input type="password" id="s-claude-key" class="input flex-1" value="${escHtml(s.claudeKey)}" placeholder="sk-ant-...">
+              <button onclick="testClaudeKey()" class="btn-secondary text-sm whitespace-nowrap">Проверить</button>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Получить: <a href="https://console.anthropic.com/settings/keys" target="_blank" class="text-blue-400 underline">console.anthropic.com → API Keys</a></p>
+          </div>
+          <div>
+            <label class="text-sm text-slate-400 block mb-1">Модель</label>
+            <select id="s-model" class="input">
+              ${['claude-opus-4-8','claude-sonnet-4-6','claude-haiku-4-5-20251001'].map(m => `<option value="${m}" ${s.claudeModel===m?'selected':''}>${m}</option>`).join('')}
+            </select>
+            <p class="text-xs text-slate-500 mt-1">Рекомендуется: claude-sonnet-4-6 (оптимальный баланс)</p>
+          </div>
+        </div>
+      </div>
+      <div class="border-t border-slate-700 pt-6">
+        <h2 class="text-base font-semibold text-white mb-4">Notion</h2>
+        <div>
+          <label class="text-sm text-slate-400 block mb-1">Integration Token</label>
+          <div class="flex gap-2">
+            <input type="password" id="s-notion-token" class="input flex-1" value="${escHtml(s.notionToken)}" placeholder="secret_...">
+            <button onclick="testNotionToken()" class="btn-secondary text-sm whitespace-nowrap">Проверить</button>
+          </div>
+          <p class="text-xs text-slate-500 mt-1">Получить: <a href="https://www.notion.so/my-integrations" target="_blank" class="text-blue-400 underline">notion.so/my-integrations</a> → New integration</p>
+          <p class="text-xs text-slate-500 mt-1">⚠️ Не забудьте добавить интеграцию к страницам "Проекты DD" и "Заключения агентов" в Notion (три точки → Connect to → ваша интеграция)</p>
+        </div>
+      </div>
+      <button onclick="saveSettings()" class="btn-primary w-full">💾 Сохранить настройки</button>
+    </div>
+    <div class="card p-5 mt-4 text-sm text-slate-400 space-y-2">
+      <p class="text-white font-medium">ℹ️ Как работает приложение</p>
+      <p>• Приложение работает прямо в браузере — данные хранятся локально</p>
+      <p>• Claude API: ключ хранится только в вашем браузере, никуда не отправляется</p>
+      <p>• Notion: заключения автоматически сохраняются в ваш Notion при нажатии "Сохранить"</p>
+      <p>• Для работы API нужен HTTPS. Если открываете локально через file:// — Claude API не работает</p>
+      <p>• <strong>Решение:</strong> Загрузите index.html на <a href="https://app.netlify.com/drop" target="_blank" class="text-blue-400 underline">netlify.com/drop</a> — получите постоянную ссылку</p>
+    </div>
+  </div>`;
+}
+
+async function testClaudeKey() {
+  const key = document.getElementById('s-claude-key').value.trim();
+  if (!key) { showToast('Введите ключ', 'error'); return; }
+  showToast('Проверяю ключ...', 'info', 3000);
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-allow-browser': 'true', 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 10, messages: [{ role: 'user', content: 'Hi' }] })
+    });
+    if (res.ok) showToast('✅ Claude API ключ работает!', 'success');
+    else { const e = await res.json(); showToast('❌ Ошибка: ' + (e.error?.message||'Неверный ключ'), 'error', 5000); }
+  } catch (e) { showToast('❌ Ошибка подключения — откройте через HTTPS', 'error', 5000); }
+}
+
+async function testNotionToken() {
+  const token = document.getElementById('s-notion-token').value.trim();
+  if (!token) { showToast('Введите токен', 'error'); return; }
+  showToast('Проверяю токен...', 'info', 3000);
+  try {
+    const url = 'https://api.notion.com/v1/users/me';
+    const proxy = `https://corsproxy.io/?url=${encodeURIComponent(url)}`;
+    const res = await fetch(proxy, { headers: { 'Authorization': `Bearer ${token}`, 'Notion-Version': '2022-06-28' } });
+    if (res.ok) showToast('✅ Notion токен работает!', 'success');
+    else showToast('❌ Неверный Notion токен', 'error', 5000);
+  } catch (e) { showToast('❌ Ошибка подключения', 'error', 5000); }
+}
+
+function saveSettings() {
+  state.settings.claudeKey = (document.getElementById('s-claude-key')?.value||'').trim();
+  state.settings.notionToken = (document.getElementById('s-notion-token')?.value||'').trim();
+  state.settings.claudeModel = document.getElementById('s-model')?.value || 'claude-sonnet-4-6';
+  saveState();
+  showToast('✅ Настройки сохранены', 'success');
+  render();
+}
+
+// ── NEW PROJECT ──
+
+function renderNewProject() {
+  const { step, data, files } = state.newProject;
+  return `<div class="p-6 max-w-2xl mx-auto">
+    <div class="flex items-center gap-3 mb-6">
+      <button onclick="navigate('dashboard')" class="btn-ghost">← Назад</button>
+      <h1 class="text-xl font-bold text-white">Новый проект DD</h1>
+    </div>
+    <div class="flex gap-2 mb-6">
+      ${[1,2,3].map(s => `<div class="flex-1 h-1.5 rounded-full ${s<=step?'bg-blue-500':'bg-slate-700'}"></div>`).join('')}
+    </div>
+    <div class="card p-6">
+      ${step===1 ? renderStep1(data) : step===2 ? renderStep2(files) : renderStep3(data)}
+    </div>
+  </div>`;
+}
+
+function renderStep1(data) {
+  return `<h2 class="text-base font-semibold text-white mb-4">Шаг 1 — Параметры проекта</h2>
+  <div class="space-y-4">
+    <div>
+      <label class="text-sm text-slate-400 block mb-1">Название проекта *</label>
+      <input type="text" id="np-name" class="input" value="${escHtml(data.name||'')}" placeholder="Например: Qarmet Steel — M&A покупка">
+    </div>
+    <div>
+      <label class="text-sm text-slate-400 block mb-1">Клиент</label>
+      <input type="text" id="np-client" class="input" value="${escHtml(data.client||'')}" placeholder="Имя клиента или компании">
+    </div>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="text-sm text-slate-400 block mb-1">Тип сделки</label>
+        <select id="np-dealtype" class="input">
+          <option value="">Выберите...</option>
+          ${DEAL_TYPES.map(t=>`<option value="${t}" ${data.dealType===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="text-sm text-slate-400 block mb-1">Отрасль</label>
+        <select id="np-industry" class="input">
+          <option value="">Выберите...</option>
+          ${INDUSTRIES.map(i=>`<option value="${i}" ${data.industry===i?'selected':''}>${i}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-3">
+      <div>
+        <label class="text-sm text-slate-400 block mb-1">Глубина анализа</label>
+        <select id="np-depth" class="input">
+          ${DEPTHS.map(d=>`<option value="${d}" ${data.depth===d?'selected':''}>${d}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="text-sm text-slate-400 block mb-1">Цена продавца, $млн</label>
+        <input type="number" id="np-seller" class="input" value="${data.sellerPrice||''}" placeholder="0">
+      </div>
+      <div>
+        <label class="text-sm text-slate-400 block mb-1">Целевая цена, $млн</label>
+        <input type="number" id="np-target" class="input" value="${data.targetPrice||''}" placeholder="0">
+      </div>
+    </div>
+    <button onclick="nextStep1()" class="btn-primary w-full">Далее →</button>
+  </div>`;
+}
+
+function renderStep2(files) {
+  return `<h2 class="text-base font-semibold text-white mb-4">Шаг 2 — Загрузка материалов</h2>
+  <div class="drop-zone mb-4" id="drop-zone" onclick="document.getElementById('file-input').click()">
+    <input type="file" id="file-input" multiple accept=".pdf,.xlsx,.xls,.docx,.txt" style="display:none" onchange="handleFiles(this.files)">
+    <div class="text-slate-400 text-sm">
+      <div class="text-3xl mb-2">📎</div>
+      <div class="font-medium text-slate-300">Перетащите файлы или нажмите для выбора</div>
+      <div class="text-xs mt-1">PDF, Excel (.xlsx), Word (.docx), TXT</div>
+    </div>
+  </div>
+  ${files.length === 0 ? `<p class="text-slate-500 text-sm text-center mb-4">Файлы не загружены — можно пропустить и продолжить</p>` : ''}
+  ${files.map((f,i) => `<div class="flex items-center gap-3 p-3 bg-navy-800 rounded-lg mb-2">
+    <div class="text-xl">${f.name.endsWith('.pdf')?'📄':f.name.endsWith('.xlsx')||f.name.endsWith('.xls')?'📊':f.name.endsWith('.docx')?'📝':'📋'}</div>
+    <div class="flex-1 min-w-0">
+      <div class="text-sm font-medium text-white truncate">${escHtml(f.name)}</div>
+      <div class="text-xs text-slate-400">${f.status === 'done' ? `✅ ${(f.text||'').length.toLocaleString()} символов` : f.status === 'loading' ? '⏳ Читаю...' : `❌ ${f.error}`}</div>
+    </div>
+    <button onclick="removeFile(${i})" class="text-slate-500 hover:text-red-400 text-lg">×</button>
+  </div>`).join('')}
+  <div class="flex gap-3 mt-4">
+    <button onclick="prevStep()" class="btn-secondary flex-1">← Назад</button>
+    <button onclick="nextStep2()" class="btn-primary flex-1">Далее →</button>
+  </div>`;
+}
+
+function renderStep3(data) {
+  return `<h2 class="text-base font-semibold text-white mb-4">Шаг 3 — Задача</h2>
+  <div class="space-y-4">
+    <div>
+      <label class="text-sm text-slate-400 block mb-1">Описание задачи и контекст *</label>
+      <textarea id="np-task" class="input" rows="7" placeholder="Опиши контекст сделки: кто покупатель, какова стратегическая цель, какие ключевые вопросы нужно прояснить, что известно о компании и продавце...">${escHtml(data.task||'')}</textarea>
+    </div>
+    <div class="bg-blue-950/30 border border-blue-800 rounded-lg p-3 text-xs text-blue-300">
+      <p class="font-medium mb-1">💡 Что написать:</p>
+      <p>• Кто покупатель и зачем покупает</p>
+      <p>• Что известно о продавце и его мотивации</p>
+      <p>• Какие риски беспокоят больше всего</p>
+      <p>• Особые условия или ограничения</p>
+    </div>
+    <div class="flex gap-3">
+      <button onclick="prevStep()" class="btn-secondary flex-1">← Назад</button>
+      <button onclick="createProject()" class="btn-primary flex-1">🚀 Создать и запустить DD</button>
+    </div>
+  </div>`;
+}
+
+// ── PROJECT ──
+
+function renderProject() {
+  const project = getProject();
+  if (!project) { navigate('dashboard'); return ''; }
+  const tabs = [
+    { id: 'overview', label: '📋 Обзор' },
+    { id: 'agents', label: '🤖 Агенты' },
+    { id: 'report', label: '📄 Отчёт' }
+  ];
+  return `<div class="max-w-5xl mx-auto">
+    <div class="px-6 pt-5 pb-0">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <button onclick="navigate('dashboard')" class="text-slate-400 text-sm hover:text-white mb-1 block no-print">← Все проекты</button>
+          <h1 class="text-xl font-bold text-white">${escHtml(project.name)}</h1>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="text-xs px-2 py-0.5 rounded-full ${statusClass(project.status)}">${project.status||'Активный'}</span>
+            ${project.industry?`<span class="text-xs text-slate-400">${escHtml(project.industry)}</span>`:''}
+            ${project.depth?`<span class="text-xs text-slate-400">· ${escHtml(project.depth)}</span>`:''}
+          </div>
+        </div>
+        <div class="flex items-center gap-2 no-print">
+          <select onchange="changeProjectStatus(event)" class="input text-sm w-36">
+            ${['Активный','Завершён','Пауза','Отменён'].map(s=>`<option value="${s}" ${project.status===s?'selected':''}>${s}</option>`).join('')}
+          </select>
+          <button onclick="deleteProject('${project.id}')" class="btn-ghost text-red-400 text-sm">🗑</button>
+        </div>
+      </div>
+      <div class="flex border-b border-slate-700 no-print">
+        ${tabs.map(t=>`<button onclick="switchTab('${t.id}')" class="px-4 py-2.5 text-sm font-medium transition-colors ${state.currentTab===t.id?'tab-active':'tab-inactive'}">${t.label}</button>`).join('')}
+      </div>
+    </div>
+    <div class="p-6">
+      ${state.currentTab==='overview' ? renderOverviewTab(project) : state.currentTab==='agents' ? renderAgentsTab(project) : renderReportTab(project)}
+    </div>
+  </div>`;
+}
+
+function renderOverviewTab(project) {
+  const done = AGENTS.filter(a => project.conclusions?.[a.id]?.text).length;
+  return `<div class="grid grid-cols-2 gap-4 mb-5">
+    <div class="card p-4">
+      <div class="text-xs text-slate-400 mb-2">Параметры сделки</div>
+      ${project.client?`<div class="text-sm"><span class="text-slate-400">Клиент:</span> <span class="text-white">${escHtml(project.client)}</span></div>`:''}
+      ${project.dealType?`<div class="text-sm mt-1"><span class="text-slate-400">Тип:</span> <span class="text-white">${escHtml(project.dealType)}</span></div>`:''}
+      ${project.sellerPrice?`<div class="text-sm mt-1"><span class="text-slate-400">Цена продавца:</span> <span class="text-white">$${project.sellerPrice} млн</span></div>`:''}
+      ${project.targetPrice?`<div class="text-sm mt-1"><span class="text-slate-400">Целевая:</span> <span class="text-white">$${project.targetPrice} млн</span></div>`:''}
+    </div>
+    <div class="card p-4">
+      <div class="text-xs text-slate-400 mb-2">Прогресс анализа</div>
+      <div class="text-2xl font-bold text-white mb-1">${done}/8</div>
+      <div class="text-xs text-slate-400 mb-2">агентов завершили</div>
+      <div class="progress-bar"><div class="progress-fill" style="width:${getProgress(project)}%"></div></div>
+    </div>
+  </div>
+  ${project.task?`<div class="card p-4 mb-4">
+    <div class="text-xs text-slate-400 mb-2">Задача</div>
+    <div class="text-sm text-slate-300 whitespace-pre-wrap">${escHtml(project.task)}</div>
+  </div>`:''}
+  ${project.files?.length?`<div class="card p-4">
+    <div class="text-xs text-slate-400 mb-2">Файлы (${project.files.length})</div>
+    <div class="space-y-1">${project.files.map(f=>`<div class="text-sm text-slate-300 flex items-center gap-2">
+      <span>📎</span><span>${escHtml(f.name)}</span>
+      <span class="text-xs text-slate-500">${((f.text||'').length/1000).toFixed(0)}к символов</span>
+    </div>`).join('')}</div>
+  </div>`:''}`;
+}
+
+function renderAgentsTab(project) {
+  const isRunning = !!state.runningAgent;
+  const allDone = AGENTS.every(a => project.conclusions?.[a.id]?.text);
+  return `<div class="mb-4 flex gap-3 items-center flex-wrap">
+    <button onclick="runAllAgents('${project.id}')" class="btn-primary" ${isRunning?'disabled':''}>
+      ${isRunning ? `<span class="spinner mr-2"></span>Анализирует...` : '🚀 Запустить всех агентов'}
+    </button>
+    ${allDone ? `<button onclick="switchTab('report')" class="btn-secondary">📄 Смотреть отчёт</button>` : ''}
+    ${isRunning ? `<span class="text-sm text-slate-400">Работает: ${AGENTS.find(a=>a.id===state.runningAgent)?.name||state.runningAgent}</span>` : ''}
+  </div>
+  <div class="grid grid-cols-2 gap-3">
+    ${AGENTS.map(agent => {
+      const conclusion = project.conclusions?.[agent.id];
+      const running = state.runningAgent === agent.id;
+      const done = !!conclusion?.text;
+      const isCeo = agent.id === 'ceo';
+      const isRisk = agent.id === 'risk';
+      const needsOthers = (isCeo || isRisk) && !allDone;
+      return `<div class="card p-4 agent-card border ${done?'border-green-800/50':running?'border-blue-500':'border-slate-700'}">
+        <div class="flex items-start justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">${agent.icon}</span>
+            <div>
+              <div class="font-medium text-white text-sm">${agent.name}</div>
+              <div class="text-xs text-slate-400">${agent.short}</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-1">
+            ${done ? `<span class="text-green-400 text-lg">✓</span>` : running ? `<span class="spinner"></span>` : ''}
+            <button onclick="runSingleAgent('${project.id}','${agent.id}')" class="btn-ghost text-xs px-2 py-1" ${isRunning?'disabled':''} title="Запустить отдельно">▶</button>
+          </div>
+        </div>
+        ${running ? `<div class="text-xs text-blue-400 animate-pulse">Анализирует...</div>` :
+          done ? `<div class="text-xs text-slate-300 line-clamp-2">${escHtml((conclusion.text||'').substring(0,120))}...</div>` :
+          needsOthers ? `<div class="text-xs text-slate-500">Ожидает остальных агентов</div>` :
+          `<div class="text-xs text-slate-500">Ожидает запуска</div>`}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function renderReportTab(project) {
+  const completedAgents = AGENTS.filter(a => project.conclusions?.[a.id]?.text);
+  if (completedAgents.length === 0) {
+    return `<div class="text-center py-16">
+      <div class="text-5xl mb-4">🤖</div>
+      <div class="text-slate-400 mb-4">Запустите агентов, чтобы получить отчёт</div>
+      <button onclick="switchTab('agents')" class="btn-primary">Перейти к агентам</button>
+    </div>`;
+  }
+  return `<div class="mb-5 flex gap-3 flex-wrap no-print">
+    <button onclick="printReport(getProject())" class="btn-primary">🖨 Распечатать / PDF</button>
+    <button onclick="downloadTxt(getProject())" class="btn-secondary">⬇ Скачать .txt</button>
+    <button onclick="handleSaveToNotion()" class="btn-secondary" id="notion-save-btn">💾 Сохранить в Notion</button>
+  </div>
+  <div class="space-y-4">
+    ${AGENTS.filter(a => a.id !== 'ceo').map(agent => {
+      const c = project.conclusions?.[agent.id];
+      if (!c?.text) return '';
+      return `<div class="card overflow-hidden">
+        <div class="px-4 py-3 flex items-center gap-2 border-b border-slate-700">
+          <span class="text-lg">${agent.icon}</span>
+          <span class="font-semibold text-white">${agent.name}</span>
+          ${c.timestamp ? `<span class="text-xs text-slate-500 ml-auto">${new Date(c.timestamp).toLocaleString('ru-RU')}</span>` : ''}
+        </div>
+        <div class="p-4 markdown text-sm">${renderMarkdown(c.text)}</div>
+      </div>`;
+    }).join('')}
+    ${project.conclusions?.ceo?.text ? `<div class="card overflow-hidden border-yellow-700/50">
+      <div class="px-4 py-3 flex items-center gap-2 border-b border-yellow-700/30" style="background:rgba(146,64,14,0.15)">
+        <span class="text-lg">👔</span>
+        <span class="font-bold text-yellow-300">ВЕРДИКТ CEO</span>
+        ${project.conclusions.ceo.timestamp ? `<span class="text-xs text-slate-500 ml-auto">${new Date(project.conclusions.ceo.timestamp).toLocaleString('ru-RU')}</span>` : ''}
+      </div>
+      <div class="p-4 markdown text-sm">${renderMarkdown(project.conclusions.ceo.text)}</div>
+    </div>` : ''}
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// ACTIONS
+// ══════════════════════════════════════════════════════════════
+
+function nextStep1() {
+  const name = document.getElementById('np-name')?.value?.trim();
+  if (!name) { showToast('Введите название проекта', 'error'); return; }
+  state.newProject.data = {
+    ...state.newProject.data,
+    name,
+    client: document.getElementById('np-client')?.value?.trim(),
+    dealType: document.getElementById('np-dealtype')?.value,
+    industry: document.getElementById('np-industry')?.value,
+    depth: document.getElementById('np-depth')?.value,
+    sellerPrice: document.getElementById('np-seller')?.value,
+    targetPrice: document.getElementById('np-target')?.value
+  };
+  state.newProject.step = 2;
+  render();
+}
+
+function nextStep2() {
+  const loading = state.newProject.files.some(f => f.status === 'loading');
+  if (loading) { showToast('Дождитесь загрузки файлов', 'error'); return; }
+  state.newProject.step = 3;
+  render();
+}
+
+function prevStep() {
+  state.newProject.step = Math.max(1, state.newProject.step - 1);
+  render();
+}
+
+async function handleFiles(fileList) {
+  for (const file of Array.from(fileList)) {
+    const entry = { name: file.name, status: 'loading', text: '', error: '' };
+    state.newProject.files.push(entry);
+    render();
+    try {
+      entry.text = await extractText(file);
+      entry.status = 'done';
+    } catch (e) {
+      entry.status = 'error';
+      entry.error = e.message;
+    }
+    render();
+  }
+}
+
+function removeFile(index) {
+  state.newProject.files.splice(index, 1);
+  render();
+}
+
+function createProject() {
+  const task = document.getElementById('np-task')?.value?.trim();
+  if (!task) { showToast('Опишите задачу проекта', 'error'); return; }
+  const project = {
+    id: generateId(),
+    ...state.newProject.data,
+    task,
+    files: state.newProject.files.filter(f => f.status === 'done').map(f => ({ name: f.name, text: f.text })),
+    status: 'Активный',
+    conclusions: {},
+    createdAt: new Date().toISOString()
+  };
+  state.projects.unshift(project);
+  saveState();
+  showToast('✅ Проект создан!', 'success');
+  state.currentProjectId = project.id;
+  state.currentTab = 'agents';
+  state.page = 'project';
+  render();
+  if (state.settings.claudeKey) {
+    setTimeout(() => runAllAgents(project.id), 300);
+  } else {
+    showToast('⚠️ Добавьте Claude API ключ в Настройках для запуска анализа', 'error', 6000);
+  }
+}
+
+function switchTab(tab) {
+  state.currentTab = tab;
+  render();
+}
+
+function changeProjectStatus(e) {
+  const project = getProject();
+  if (project) { project.status = e.target.value; saveState(); render(); }
+}
+
+function deleteProject(id) {
+  if (!confirm('Удалить проект? Все заключения будут потеряны.')) return;
+  state.projects = state.projects.filter(p => p.id !== id);
+  saveState();
+  navigate('dashboard');
+}
+
+async function handleSaveToNotion() {
+  const project = getProject();
+  if (!project) return;
+  const btn = document.getElementById('notion-save-btn');
+  if (btn) { btn.textContent = '⏳ Сохраняю...'; btn.disabled = true; }
+  try {
+    const id = await saveToNotion(project);
+    showToast('✅ Сохранено в Notion!', 'success');
+    if (btn) { btn.textContent = '✅ Сохранено'; }
+  } catch (e) {
+    showToast('❌ Ошибка Notion: ' + e.message, 'error', 6000);
+    if (btn) { btn.textContent = '💾 Сохранить в Notion'; btn.disabled = false; }
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// EVENT LISTENERS
+// ══════════════════════════════════════════════════════════════
+
+function attachListeners() {
+  const dz = document.getElementById('drop-zone');
+  if (dz) {
+    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+    dz.addEventListener('drop', e => {
+      e.preventDefault();
+      dz.classList.remove('drag-over');
+      handleFiles(e.dataTransfer.files);
+    });
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════════════
+
+loadState();
+render();
+</script>
+</body>
+</html>
