@@ -557,6 +557,13 @@ function buildContext(project) {
   if (project.depth) ctx += `ГЛУБИНА АНАЛИЗА: ${project.depth}\n`;
   if (project.sellerPrice) ctx += `ЦЕНА ПРОДАВЦА: $${project.sellerPrice} млн\n`;
   if (project.targetPrice) ctx += `ЦЕЛЕВАЯ ЦЕНА: $${project.targetPrice} млн\n`;
+  if (project.isGroup && project.companies?.length) {
+    ctx += `\n${'='.repeat(50)}\nСТРУКТУРА ГРУППЫ КОМПАНИЙ (${project.companies.length} юр. лиц):\n${'='.repeat(50)}\n`;
+    project.companies.forEach((c, i) => {
+      ctx += `${i + 1}. ${c.name} [${c.role}]${c.ownership ? ` — доля ${c.ownership}%` : ''}\n`;
+    });
+    if (project.ownershipDesc) ctx += `\nСхема владения / комментарий:\n${project.ownershipDesc}\n`;
+  }
   ctx += `\nЗАДАЧА:\n${project.task || 'Провести полный DD анализ'}\n`;
   if (project.files?.length) {
     ctx += `\n${'='.repeat(50)}\nМАТЕРИАЛЫ ПРОЕКТА:\n${'='.repeat(50)}\n`;
@@ -584,7 +591,21 @@ async function runAgent(project, agentId) {
   const agent = AGENTS[agentIndex];
   const needsConclusions = agentId === 'risk' || agentId === 'ceo';
   const ctx = needsConclusions ? buildContextWithConclusions(project, agentIndex) : buildContext(project);
-  const text = await callClaude(agent.systemPrompt, ctx);
+  let systemPrompt = agent.systemPrompt;
+  if (project.isGroup && project.companies?.length) {
+    const groupList = project.companies.map(c => `${c.name} [${c.role}${c.ownership ? ', ' + c.ownership + '%' : ''}]`).join(', ');
+    systemPrompt = `ОБЯЗАТЕЛЬНЫЕ ТРЕБОВАНИЯ — ГРУППА КОМПАНИЙ:
+Объект DD — группа из ${project.companies.length} юридических лиц: ${groupList}.
+В своём заключении ты ОБЯЗАН:
+1. Анализировать каждое юридическое лицо отдельно (отдельные строки/таблицы), затем давать консолидированную картину
+2. Выявлять и ЭЛИМИНИРОВАТЬ внутригрупповые операции: продажи товаров и услуг между компаниями группы, внутригрупповые займы и проценты по ним, роялти и управленческие платы, дивиденды внутри группы, остатки по расчётам между компаниями
+3. Строить консолидированные показатели только после элиминирования — иначе будет двойной счёт
+4. Отдельно анализировать холдинговую компанию: есть ли реальный substance, нет ли утечки стоимости через холдинг, какова реальная стоимость активов у активодержащих компаний
+5. Указывать, в каком юридическом лице находится каждый существенный актив, обязательство или риск
+
+${systemPrompt}`;
+  }
+  const text = await callClaude(systemPrompt, ctx);
   if (!project.conclusions) project.conclusions = {};
   project.conclusions[agentId] = { text, timestamp: new Date().toISOString() };
   saveState();
@@ -1090,6 +1111,34 @@ function renderStep1(data) {
         <input type="number" id="np-target" class="input" value="${data.targetPrice||''}" placeholder="0">
       </div>
     </div>
+    <div>
+      <label class="text-sm text-slate-400 block mb-1">Структура объекта DD</label>
+      <select id="np-structure" class="input" onchange="toggleGroupStructure()">
+        <option value="single" ${!data.isGroup?'selected':''}>Одна компания</option>
+        <option value="group" ${data.isGroup?'selected':''}>Группа компаний / холдинг</option>
+      </select>
+    </div>
+    ${data.isGroup ? `<div class="rounded-xl border border-blue-800/50 bg-blue-950/20 p-4 space-y-3">
+      <div class="flex items-center gap-2">
+        <span class="text-blue-300 text-sm font-semibold">🏗 Структура группы</span>
+        <span class="text-xs text-slate-400">— агенты выполнят элиминирование и консолидацию</span>
+      </div>
+      <div class="space-y-2">
+        ${(data.companies||[]).map((c,i)=>`<div class="gc-row grid gap-2 items-center" style="grid-template-columns:1fr 180px 80px 32px">
+          <input type="text" class="input gc-name text-sm" value="${escHtml(c.name)}" placeholder="Название юр. лица">
+          <select class="input gc-role text-sm">
+            ${COMPANY_ROLES.map(r=>`<option ${c.role===r?'selected':''}>${r}</option>`).join('')}
+          </select>
+          <input type="text" class="input gc-ownership text-sm" value="${escHtml(c.ownership||'')}" placeholder="Доля %">
+          <button onclick="removeGroupCompany(${i})" class="text-slate-500 hover:text-red-400 text-xl leading-none text-center">×</button>
+        </div>`).join('')}
+      </div>
+      <button onclick="addGroupCompany()" class="btn-secondary text-sm w-full">+ Добавить юридическое лицо</button>
+      <div>
+        <label class="text-xs text-slate-400 block mb-1">Схема владения / комментарий к структуре</label>
+        <textarea id="np-ownership" class="input text-sm" rows="3" placeholder="Например: ТОО «Холдинг» владеет 100% ТОО «Актив» и 70% ТОО «Операции». ТОО «Финанс» выдаёт внутригрупповые займы...">${escHtml(data.ownershipDesc||'')}</textarea>
+      </div>
+    </div>` : ''}
     <button onclick="nextStep1()" class="btn-primary w-full">Далее →</button>
   </div>`;
 }
@@ -1188,6 +1237,10 @@ function renderOverviewTab(project) {
       ${project.dealType?`<div class="text-sm mt-1"><span class="text-slate-400">Тип:</span> <span class="text-white">${escHtml(project.dealType)}</span></div>`:''}
       ${project.sellerPrice?`<div class="text-sm mt-1"><span class="text-slate-400">Цена продавца:</span> <span class="text-white">$${project.sellerPrice} млн</span></div>`:''}
       ${project.targetPrice?`<div class="text-sm mt-1"><span class="text-slate-400">Целевая:</span> <span class="text-white">$${project.targetPrice} млн</span></div>`:''}
+      ${project.isGroup && project.companies?.length ? `<div class="mt-2 pt-2 border-t border-slate-700">
+        <div class="text-xs text-blue-400 mb-1">🏗 Группа (${project.companies.length} юр. лиц)</div>
+        ${project.companies.map(c=>`<div class="text-xs text-slate-300 mt-0.5">• ${escHtml(c.name)} <span class="text-slate-500">[${escHtml(c.role)}${c.ownership?', '+escHtml(c.ownership)+'%':''}]</span></div>`).join('')}
+      </div>` : ''}
     </div>
     <div class="card p-4">
       <div class="text-xs text-slate-400 mb-2">Прогресс анализа</div>
@@ -1313,6 +1366,54 @@ function renderReportTab(project) {
 // ACTIONS
 // ══════════════════════════════════════════════════════════════
 
+const COMPANY_ROLES = ['Холдинговая', 'Операционная', 'Активодержащая', 'Финансовая / Казначейство', 'SPV / Специальная', 'Другое'];
+
+function syncStep1Data() {
+  const isGroup = document.getElementById('np-structure')?.value === 'group';
+  const companies = [];
+  document.querySelectorAll('.gc-row').forEach(row => {
+    companies.push({
+      name: row.querySelector('.gc-name')?.value?.trim() || '',
+      role: row.querySelector('.gc-role')?.value || 'Операционная',
+      ownership: row.querySelector('.gc-ownership')?.value?.trim() || ''
+    });
+  });
+  state.newProject.data = {
+    ...state.newProject.data,
+    name: document.getElementById('np-name')?.value?.trim() || state.newProject.data.name || '',
+    client: document.getElementById('np-client')?.value?.trim() || '',
+    dealType: document.getElementById('np-dealtype')?.value || '',
+    industry: document.getElementById('np-industry')?.value || '',
+    depth: document.getElementById('np-depth')?.value || '',
+    sellerPrice: document.getElementById('np-seller')?.value || '',
+    targetPrice: document.getElementById('np-target')?.value || '',
+    isGroup,
+    companies: isGroup ? companies : [],
+    ownershipDesc: document.getElementById('np-ownership')?.value?.trim() || ''
+  };
+}
+
+function toggleGroupStructure() {
+  syncStep1Data();
+  if (state.newProject.data.isGroup && !state.newProject.data.companies?.length) {
+    state.newProject.data.companies = [{ name: '', role: 'Холдинговая', ownership: '' }];
+  }
+  render();
+}
+
+function addGroupCompany() {
+  syncStep1Data();
+  if (!state.newProject.data.companies) state.newProject.data.companies = [];
+  state.newProject.data.companies.push({ name: '', role: 'Операционная', ownership: '' });
+  render();
+}
+
+function removeGroupCompany(index) {
+  syncStep1Data();
+  state.newProject.data.companies.splice(index, 1);
+  render();
+}
+
 function startEditTask() { state.editingTask = true; render(); }
 function cancelTaskEdit() { state.editingTask = false; render(); }
 function saveTaskEdit() {
@@ -1357,18 +1458,8 @@ function removeProjectFile(projectId, index) {
 }
 
 function nextStep1() {
-  const name = document.getElementById('np-name')?.value?.trim();
-  if (!name) { showToast('Введите название проекта', 'error'); return; }
-  state.newProject.data = {
-    ...state.newProject.data,
-    name,
-    client: document.getElementById('np-client')?.value?.trim(),
-    dealType: document.getElementById('np-dealtype')?.value,
-    industry: document.getElementById('np-industry')?.value,
-    depth: document.getElementById('np-depth')?.value,
-    sellerPrice: document.getElementById('np-seller')?.value,
-    targetPrice: document.getElementById('np-target')?.value
-  };
+  syncStep1Data();
+  if (!state.newProject.data.name) { showToast('Введите название проекта', 'error'); return; }
   state.newProject.step = 2;
   render();
 }
