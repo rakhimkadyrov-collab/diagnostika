@@ -380,6 +380,13 @@ const DEAL_TYPES = ['M&A покупка', 'M&A продажа', 'Инвести�
 const INDUSTRIES = ['Горнодобывающая', 'Металлургия', 'Нефть и газ', 'АПК', 'IT / Технологии', 'Финансы / Банки', 'Недвижимость', 'Ритейл', 'Производство', 'Медицина', 'Энергетика', 'Транспорт', 'Иное'];
 const DEPTHS = ['Экспресс-DD', 'Стандартный DD', 'Полный DD'];
 
+const MODEL_PRICING = {
+  'claude-opus-4-8':        { input: 5.0,  output: 25.0 },
+  'claude-sonnet-4-6':      { input: 3.0,  output: 15.0 },
+  'claude-haiku-4-5-20251001': { input: 1.0, output: 5.0 },
+  'claude-haiku-4-5':       { input: 1.0,  output: 5.0 }
+};
+
 // ══════════════════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════════════════
@@ -391,7 +398,8 @@ let state = {
   currentTab: 'overview',
   newProject: { step: 1, data: {}, files: [] },
   runningAgent: null,
-  settings: { claudeKey: '', notionToken: '', claudeModel: 'claude-sonnet-4-6' }
+  settings: { claudeKey: '', notionToken: '', claudeModel: 'claude-sonnet-4-6' },
+  sessionUsage: { inputTokens: 0, outputTokens: 0, cost: 0 }
 };
 
 function loadState() {
@@ -411,6 +419,12 @@ function saveState() {
 }
 
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
+
+function calculateCost(usage) {
+  const model = state.settings.claudeModel || 'claude-sonnet-4-6';
+  const pricing = MODEL_PRICING[model] || MODEL_PRICING['claude-sonnet-4-6'];
+  return ((usage.input_tokens || 0) * pricing.input + (usage.output_tokens || 0) * pricing.output) / 1_000_000;
+}
 
 function getProject() { return state.projects.find(p => p.id === state.currentProjectId); }
 
@@ -497,6 +511,7 @@ async function claudeFetch(key, body) {
     'x-api-key': key,
     'anthropic-version': '2023-06-01',
     'anthropic-dangerous-direct-browser-access': 'true',
+    'anthropic-beta': 'web-search-2025-03-05',
     'content-type': 'application/json'
   };
   // Try direct first, fall back to proxy
@@ -514,7 +529,8 @@ async function callClaude(systemPrompt, userContent) {
     model: state.settings.claudeModel || 'claude-sonnet-4-6',
     max_tokens: 4000,
     system: systemPrompt,
-    messages: [{ role: 'user', content: userContent }]
+    messages: [{ role: 'user', content: userContent }],
+    tools: [{ type: 'web_search_20250305', name: 'web_search' }]
   });
   const res = await claudeFetch(key, body);
   if (!res.ok) {
@@ -523,7 +539,13 @@ async function callClaude(systemPrompt, userContent) {
     throw new Error(msg);
   }
   const data = await res.json();
-  return data.content[0].text;
+  if (data.usage) {
+    state.sessionUsage.inputTokens += data.usage.input_tokens || 0;
+    state.sessionUsage.outputTokens += data.usage.output_tokens || 0;
+    state.sessionUsage.cost += calculateCost(data.usage);
+  }
+  const textBlocks = (data.content || []).filter(b => b.type === 'text');
+  return textBlocks.map(b => b.text).join('\n');
 }
 
 function buildContext(project) {
@@ -825,9 +847,16 @@ function renderNav() {
     { page: 'settings', label: '⚙️ Настройки' }
   ];
   const hasKey = state.settings.claudeKey;
+  const totalTokens = state.sessionUsage.inputTokens + state.sessionUsage.outputTokens;
+  const costStr = state.sessionUsage.cost.toFixed(4);
+  const tokStr = totalTokens >= 1000 ? (totalTokens / 1000).toFixed(1) + 'k' : totalTokens;
+  const costBadge = totalTokens > 0
+    ? `<span title="Потрачено за сессию (токены + веб-поиск не включён)" onclick="state.sessionUsage={inputTokens:0,outputTokens:0,cost:0};render()" style="cursor:pointer" class="text-xs bg-slate-800 border border-slate-600 text-slate-300 px-2.5 py-1 rounded-full hover:border-slate-500">~$${costStr} · ${tokStr} tok ✕</span>`
+    : '';
   return `<nav class="border-b border-slate-700 px-6 py-3 flex items-center justify-between sticky top-0 z-50 no-print" style="background:#0F172A">
     <button onclick="navigate('dashboard')" class="text-lg font-bold text-white hover:text-blue-400 transition-colors">⚖️ DD Офис</button>
     <div class="flex items-center gap-2">
+      ${costBadge}
       ${links.map(l => `<button onclick="navigate('${l.page}')" class="btn-ghost text-sm ${state.page === l.page ? 'text-blue-400' : ''}">${l.label}</button>`).join('')}
       <div class="ml-3 w-2 h-2 rounded-full ${hasKey ? 'bg-green-500' : 'bg-red-500'}" title="${hasKey ? 'API настроен' : 'Нет API ключа'}"></div>
     </div>
