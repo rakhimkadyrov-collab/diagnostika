@@ -426,6 +426,8 @@ function getMaxTokens() {
   const model = state.settings.claudeModel || 'claude-sonnet-4-6';
   return model.includes('haiku') ? 8000 : 16000;
 }
+
+function calculateCost(usage) {
   const model = state.settings.claudeModel || 'claude-sonnet-4-6';
   const pricing = MODEL_PRICING[model] || MODEL_PRICING['claude-sonnet-4-6'];
   return ((usage.input_tokens || 0) * pricing.input + (usage.output_tokens || 0) * pricing.output) / 1_000_000;
