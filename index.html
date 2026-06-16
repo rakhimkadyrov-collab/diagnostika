@@ -884,9 +884,11 @@ function big4Css() {
 function generateBig4Html(project, singleAgentId) {
   const date = new Date().toLocaleDateString('ru-RU', {year:'numeric',month:'long',day:'numeric'});
   const agentLabel = singleAgentId ? ' · ' + (AGENTS.find(a => a.id === singleAgentId)?.name || '') : '';
-  const printAgents = singleAgentId
+  const printAgents = singleAgentId && singleAgentId !== 'ceo'
     ? AGENTS.filter(a => a.id === singleAgentId && project.conclusions?.[a.id]?.text)
-    : AGENTS.filter(a => a.id !== 'ceo' && project.conclusions?.[a.id]?.text);
+    : singleAgentId === 'ceo'
+      ? []
+      : AGENTS.filter(a => a.id !== 'ceo' && project.conclusions?.[a.id]?.text);
   const hasCeo = !singleAgentId || singleAgentId === 'ceo';
   const ceoData = project.conclusions?.ceo;
 
