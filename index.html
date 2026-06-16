@@ -422,7 +422,10 @@ function saveState() {
 
 function generateId() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
 
-function calculateCost(usage) {
+function getMaxTokens() {
+  const model = state.settings.claudeModel || 'claude-sonnet-4-6';
+  return model.includes('haiku') ? 8000 : 16000;
+}
   const model = state.settings.claudeModel || 'claude-sonnet-4-6';
   const pricing = MODEL_PRICING[model] || MODEL_PRICING['claude-sonnet-4-6'];
   return ((usage.input_tokens || 0) * pricing.input + (usage.output_tokens || 0) * pricing.output) / 1_000_000;
@@ -529,7 +532,7 @@ async function callClaude(systemPrompt, userContent) {
   if (!key) throw new Error('API ключ не настроен. Перейдите в ⚙️ Настройки.');
   const body = JSON.stringify({
     model: state.settings.claudeModel || 'claude-sonnet-4-6',
-    max_tokens: 8000,
+    max_tokens: getMaxTokens(),
     system: systemPrompt,
     messages: [{ role: 'user', content: userContent }],
     tools: [{ type: 'web_search_20250305', name: 'web_search' }]
