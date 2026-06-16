@@ -410,6 +410,10 @@ let state = {
   finModelYears: 5,
   riskExtracting: false,
   enSummaryRunning: false,
+  flagsExtracting: false,
+  memoRunning: false,
+  drlRunning: false,
+  compsRunning: false,
   settings: { claudeKey: '', notionToken: '', claudeModel: 'claude-sonnet-4-6' },
   sessionUsage: { inputTokens: 0, outputTokens: 0, cost: 0 }
 };
@@ -1409,7 +1413,8 @@ function renderProject() {
     { id: 'report', label: '📄 Отчёт' },
     { id: 'checklist', label: '✅ Задачи' },
     { id: 'finmodel', label: '📊 Финмодель' },
-    { id: 'risks', label: '🎯 Риски' }
+    { id: 'risks', label: '🎯 Риски' },
+    { id: 'flags', label: '🚩 Флаги' }
   ];
   return `<div class="max-w-5xl mx-auto">
     <div class="px-6 pt-5 pb-0">
@@ -1435,7 +1440,7 @@ function renderProject() {
       </div>
     </div>
     <div class="p-6">
-      ${state.currentTab==='overview' ? renderOverviewTab(project) : state.currentTab==='agents' ? renderAgentsTab(project) : state.currentTab==='checklist' ? renderChecklistTab(project) : state.currentTab==='finmodel' ? renderFinModelTab(project) : state.currentTab==='risks' ? renderRiskMatrixTab(project) : renderReportTab(project)}
+      ${state.currentTab==='overview' ? renderOverviewTab(project) : state.currentTab==='agents' ? renderAgentsTab(project) : state.currentTab==='checklist' ? renderChecklistTab(project) : state.currentTab==='finmodel' ? renderFinModelTab(project) : state.currentTab==='risks' ? renderRiskMatrixTab(project) : state.currentTab==='flags' ? renderRedFlagsTab(project) : renderReportTab(project)}
     </div>
   </div>`;
 }
@@ -1499,7 +1504,8 @@ function renderOverviewTab(project) {
     </div>` : `<div class="text-xs text-slate-500">Нет загруженных файлов — добавьте материалы клиента</div>`}
   </div>
 
-  ${renderGanttSection(project)}`;
+  ${renderGanttSection(project)}
+  ${renderDRLSection(project)}`;
 }
 
 function renderAgentsTab(project) {
@@ -1651,6 +1657,9 @@ function renderReportTab(project) {
     <button onclick="generateEnglishSummary('${project.id}')" class="btn-secondary text-sm" ${state.enSummaryRunning?'disabled':''}>
       ${state.enSummaryRunning ? '<span class="spinner mr-1"></span>' : '🌐'} English Summary
     </button>
+    <button onclick="generateInvestMemo('${project.id}')" class="btn-secondary text-sm" ${state.memoRunning?'disabled':''}>
+      ${state.memoRunning ? '<span class="spinner mr-1"></span>' : '📋'} Invest Memo
+    </button>
   </div>
   ${project.executiveSummaryEN ? `<div class="card overflow-hidden border-blue-800/50 mb-5">
     <div class="px-4 py-3 flex items-center gap-2 border-b border-blue-800/30 no-print" style="background:rgba(30,58,138,0.2)">
@@ -1661,6 +1670,16 @@ function renderReportTab(project) {
       <button onclick="getProject().executiveSummaryEN=null;saveState();render()" class="btn-ghost text-xs px-2 py-0.5 no-print text-slate-500">✕</button>
     </div>
     <div class="p-4 markdown text-sm">${renderMarkdown(project.executiveSummaryEN.text)}</div>
+  </div>` : ''}
+  ${project.investMemo ? `<div class="card overflow-hidden border-emerald-800/50 mb-5">
+    <div class="px-4 py-3 flex items-center gap-2 border-b border-emerald-800/30 no-print" style="background:rgba(6,78,59,0.2)">
+      <span class="text-base">📋</span>
+      <span class="font-semibold text-emerald-300 text-sm">Investment Memo (1 page)</span>
+      <span class="text-xs text-slate-500 ml-auto">${new Date(project.investMemo.createdAt).toLocaleString('ru-RU')}</span>
+      <button onclick="printInvestMemo('${project.id}')" class="btn-ghost text-xs px-2 py-0.5 no-print" title="Print / PDF">🖨</button>
+      <button onclick="getProject().investMemo=null;saveState();render()" class="btn-ghost text-xs px-2 py-0.5 no-print text-slate-500">✕</button>
+    </div>
+    <div class="p-4 markdown text-sm">${renderMarkdown(project.investMemo.text)}</div>
   </div>` : ''}`;
 
   // Content
@@ -1907,6 +1926,7 @@ function renderFinModelTab(project) {
     </div>` : ''}
 
     ${preview}
+    ${renderCompsSection(project)}
   </div>`;
 }
 
@@ -3050,6 +3070,605 @@ async function extractRiskMatrix(projectId) {
   }
 
   state.riskExtracting = false;
+  render();
+}
+
+// ══════════════════════════════════════════════════════════════
+// FEATURE: DOCUMENT REQUEST LIST (DRL)
+// ══════════════════════════════════════════════════════════════
+
+function renderDRLSection(project) {
+  const drl = project.drl;
+  const running = state.drlRunning;
+  return `<div class="card p-4 mt-4">
+    <div class="flex items-center justify-between mb-3">
+      <div>
+        <div class="text-sm font-semibold text-white">📋 Запрос документов (DRL)</div>
+        <div class="text-xs text-slate-500 mt-0.5">Перечень документов для DD по категориям</div>
+      </div>
+      <div class="flex gap-2">
+        ${drl ? `<button onclick="downloadDRL('${project.id}')" class="btn-ghost text-xs px-3 py-1.5">⬇ .doc</button>` : ''}
+        <button onclick="generateDRL('${project.id}')" class="btn-secondary text-sm" ${running?'disabled':''}>
+          ${running ? '<span class="spinner mr-1"></span>Генерирую...' : drl ? '🔄 Обновить' : '✨ Сгенерировать DRL'}
+        </button>
+      </div>
+    </div>
+    ${drl ? `<div>
+      ${(drl.categories||[]).map(cat => `<div class="mb-3">
+        <div class="text-xs font-semibold text-blue-300 mb-1.5">📁 ${escHtml(cat.name)}</div>
+        <div class="space-y-1">
+          ${(cat.docs||[]).map(doc => `<div class="flex items-start gap-2 py-1 border-b border-slate-800/60">
+            <span class="text-xs mt-0.5 flex-shrink-0 ${doc.priority==='critical'?'text-red-400':doc.priority==='high'?'text-orange-400':'text-slate-500'}">${doc.priority==='critical'?'🔴':doc.priority==='high'?'🟡':'⚪'}</span>
+            <div class="flex-1">
+              <div class="text-xs text-slate-200">${escHtml(doc.name)}</div>
+              ${doc.note ? `<div class="text-xs text-slate-500 mt-0.5">${escHtml(doc.note)}</div>` : ''}
+            </div>
+          </div>`).join('')}
+        </div>
+      </div>`).join('')}
+      <div class="text-xs text-slate-600 mt-2">Создан: ${new Date(drl.createdAt).toLocaleString('ru-RU')} · Всего: ${(drl.categories||[]).reduce((s,c)=>s+(c.docs||[]).length,0)} документов</div>
+    </div>` : `<div class="text-xs text-slate-500 text-center py-3">Нажми «Сгенерировать DRL» — Claude составит список нужных документов с учётом отрасли и типа сделки</div>`}
+  </div>`;
+}
+
+async function generateDRL(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project || state.drlRunning) return;
+  if (!state.settings.claudeKey) { showToast('Нет API ключа', 'error'); return; }
+
+  state.drlRunning = true;
+  render();
+
+  try {
+    const context = [
+      project.name ? `Компания: ${project.name}` : '',
+      project.industry ? `Отрасль: ${project.industry}` : '',
+      project.dealType ? `Тип сделки: ${project.dealType}` : '',
+      project.task ? `Задача: ${project.task.substring(0,500)}` : '',
+      project.conclusions?.financier?.text ? `Финансист: ${project.conclusions.financier.text.substring(0,800)}` : '',
+      project.conclusions?.lawyer?.text ? `Юрист: ${project.conclusions.lawyer.text.substring(0,800)}` : '',
+      project.conclusions?.auditor?.text ? `Аудитор: ${project.conclusions.auditor.text.substring(0,400)}` : ''
+    ].filter(Boolean).join('\n\n');
+
+    const sysPrompt = `Ты — опытный DD-аналитик инвестиционного банка. Составь полный Document Request List (DRL) для Due Diligence.
+Верни ТОЛЬКО JSON без markdown, без пояснений, только объект {}.
+
+Структура:
+{
+  "categories": [
+    {
+      "name": "Название категории",
+      "docs": [
+        {"name": "Название документа", "priority": "critical|high|standard", "note": "пояснение когда нужно (необязательно)"}
+      ]
+    }
+  ]
+}
+
+Категории: Корпоративные документы, Финансовая отчётность, Налоговые документы, Юридические документы, Трудовые отношения, Коммерческие договоры, Интеллектуальная собственность, Операционные документы, Лицензии и разрешения, Судебные споры и претензии.
+Priority critical — без этих документов DD невозможен; high — важно; standard — желательно.
+Составь 60-90 документов с учётом отрасли и типа сделки.`;
+
+    const raw = await callClaude(sysPrompt, context || `Стандартный корпоративный M&A DD. Отрасль: ${project.industry || 'не указана'}`);
+    let jsonStr = raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+    const s = jsonStr.indexOf('{'); const e = jsonStr.lastIndexOf('}');
+    if (s !== -1 && e !== -1) jsonStr = jsonStr.slice(s, e+1);
+    const data = JSON.parse(jsonStr);
+    if (!data.categories) throw new Error('Неверная структура');
+
+    project.drl = { ...data, createdAt: new Date().toISOString() };
+    saveState();
+    showToast('✅ DRL сгенерирован', 'success');
+  } catch(e) {
+    showToast('Ошибка генерации DRL: ' + e.message, 'error', 6000);
+  }
+
+  state.drlRunning = false;
+  render();
+}
+
+function downloadDRL(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project?.drl) return;
+  const drl = project.drl;
+
+  let html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  body { font-family: 'Times New Roman', serif; font-size: 12pt; margin: 2cm; color: #000; }
+  h1 { font-size: 16pt; text-align: center; margin-bottom: 6pt; }
+  h2 { font-size: 12pt; text-align: center; color: #555; margin-bottom: 18pt; font-weight: normal; }
+  h3 { font-size: 12pt; font-weight: bold; margin-top: 14pt; margin-bottom: 6pt; border-bottom: 1px solid #999; padding-bottom: 3pt; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8pt; }
+  th { background: #1e3a5f; color: white; font-size: 10pt; padding: 4pt 6pt; text-align: left; }
+  td { font-size: 10pt; padding: 3pt 6pt; border-bottom: 1px solid #ddd; vertical-align: top; }
+  .critical { color: #c00; font-weight: bold; }
+  .high { color: #e65c00; }
+  .standard { color: #555; }
+  .footer { font-size: 9pt; color: #888; text-align: right; margin-top: 18pt; }
+</style>
+</head><body>
+<h1>Document Request List</h1>
+<h2>${escHtml(project.name || 'Due Diligence')}</h2>`;
+
+  let totalDocs = 0;
+  drl.categories.forEach(cat => {
+    html += `<h3>📁 ${escHtml(cat.name)}</h3>
+<table><tr><th>#</th><th>Документ</th><th>Приоритет</th><th>Примечание</th></tr>`;
+    (cat.docs||[]).forEach((doc, i) => {
+      const pClass = doc.priority === 'critical' ? 'critical' : doc.priority === 'high' ? 'high' : 'standard';
+      const pLabel = doc.priority === 'critical' ? '🔴 Критично' : doc.priority === 'high' ? '🟡 Важно' : '⚪ Стандарт';
+      html += `<tr><td>${i+1}</td><td>${escHtml(doc.name)}</td><td class="${pClass}">${pLabel}</td><td>${escHtml(doc.note||'')}</td></tr>`;
+      totalDocs++;
+    });
+    html += `</table>`;
+  });
+
+  html += `<div class="footer">DD Офис · ${escHtml(project.name)} · Всего документов: ${totalDocs} · ${new Date().toLocaleDateString('ru-RU')}</div>
+</body></html>`;
+
+  const blob = new Blob([html], { type: 'application/msword' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `DRL_${(project.name||'project').replace(/[^a-zа-я0-9]/gi,'_')}.doc`;
+  a.click(); URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════════════════════════════
+// FEATURE: RED FLAGS DASHBOARD
+// ══════════════════════════════════════════════════════════════
+
+function renderRedFlagsTab(project) {
+  const flags = project.redFlags || [];
+  const running = state.flagsExtracting;
+  const hasConclusions = AGENTS.some(a => project.conclusions?.[a.id]?.text);
+
+  const critical = flags.filter(f => f.severity === 'critical');
+  const significant = flags.filter(f => f.severity === 'significant');
+  const info = flags.filter(f => f.severity === 'info');
+
+  const renderFlag = (f) => `<div class="flex items-start gap-2 p-2 rounded-lg border ${f.severity==='critical'?'border-red-800/50 bg-red-950/20':f.severity==='significant'?'border-orange-800/50 bg-orange-950/20':'border-blue-800/30 bg-blue-950/10'} mb-2 group">
+    <div class="flex-1 min-w-0">
+      <div class="text-xs font-medium ${f.severity==='critical'?'text-red-300':f.severity==='significant'?'text-orange-300':'text-blue-300'} leading-snug">${escHtml(f.name||'')}</div>
+      ${f.source ? `<div class="text-xs text-slate-500 mt-0.5">${escHtml(f.source)}</div>` : ''}
+      ${f.detail ? `<div class="text-xs text-slate-400 mt-1 leading-snug">${escHtml(f.detail)}</div>` : ''}
+    </div>
+    <div class="flex flex-col gap-1 flex-shrink-0">
+      <select onchange="updateFlagSeverity('${project.id}','${f.id}',this.value)" class="bg-transparent text-xs border-0 outline-none text-slate-500 cursor-pointer">
+        <option value="critical" ${f.severity==='critical'?'selected':''}>🔴</option>
+        <option value="significant" ${f.severity==='significant'?'selected':''}>🟡</option>
+        <option value="info" ${f.severity==='info'?'selected':''}>🔵</option>
+      </select>
+      <button onclick="deleteRedFlag('${project.id}','${f.id}')" class="text-slate-700 hover:text-red-400 text-sm leading-none opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+    </div>
+  </div>`;
+
+  const addForm = `<div class="card p-3 mb-4 flex gap-2 items-end flex-wrap">
+    <div class="flex-1 min-w-40">
+      <div class="text-xs text-slate-500 mb-1">Флаг / наблюдение</div>
+      <input id="flag-name" type="text" class="input text-sm" placeholder="Краткое описание флага..." onkeydown="if(event.key==='Enter')addRedFlagManual('${project.id}')">
+    </div>
+    <div>
+      <div class="text-xs text-slate-500 mb-1">Источник</div>
+      <input id="flag-source" type="text" class="input text-sm w-28" placeholder="Аудитор...">
+    </div>
+    <div>
+      <div class="text-xs text-slate-500 mb-1">Серьёзность</div>
+      <select id="flag-severity" class="input text-sm w-32">
+        <option value="critical">🔴 Критично</option>
+        <option value="significant">🟡 Существенно</option>
+        <option value="info">🔵 К сведению</option>
+      </select>
+    </div>
+    <button onclick="addRedFlagManual('${project.id}')" class="btn-primary text-sm px-4 py-2">+ Добавить</button>
+  </div>`;
+
+  return `<div>
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-base font-semibold text-white">🚩 Red Flags Dashboard</h2>
+        <div class="text-xs text-slate-400 mt-0.5">${flags.length ? `${critical.length} критичных · ${significant.length} существенных · ${info.length} к сведению` : 'Флаги не обнаружены'}</div>
+      </div>
+      <div class="flex gap-2">
+        ${hasConclusions ? `<button onclick="extractRedFlags('${project.id}')" class="btn-secondary text-sm" ${running?'disabled':''}>
+          ${running ? '<span class="spinner mr-1"></span>Извлекаю...' : '✨ Извлечь из заключений'}
+        </button>` : ''}
+        ${flags.length ? `<button onclick="printRedFlags('${project.id}')" class="btn-ghost text-sm">🖨 PDF</button>` : ''}
+      </div>
+    </div>
+
+    ${addForm}
+
+    ${flags.length === 0 ? `<div class="card p-8 text-center text-slate-500">
+      <div class="text-4xl mb-3">🚩</div>
+      <div class="text-sm">Флагов нет — нажми «Извлечь из заключений» или добавь вручную</div>
+    </div>` : `<div class="grid grid-cols-3 gap-4">
+      <div>
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-3 h-3 rounded-full bg-red-500"></div>
+          <span class="text-sm font-semibold text-red-300">Критично (${critical.length})</span>
+        </div>
+        ${critical.length ? critical.map(renderFlag).join('') : `<div class="text-xs text-slate-600 text-center py-4">Нет критичных флагов</div>`}
+      </div>
+      <div>
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-3 h-3 rounded-full bg-orange-400"></div>
+          <span class="text-sm font-semibold text-orange-300">Существенно (${significant.length})</span>
+        </div>
+        ${significant.length ? significant.map(renderFlag).join('') : `<div class="text-xs text-slate-600 text-center py-4">Нет существенных флагов</div>`}
+      </div>
+      <div>
+        <div class="flex items-center gap-2 mb-3">
+          <div class="w-3 h-3 rounded-full bg-blue-400"></div>
+          <span class="text-sm font-semibold text-blue-300">К сведению (${info.length})</span>
+        </div>
+        ${info.length ? info.map(renderFlag).join('') : `<div class="text-xs text-slate-600 text-center py-4">Нет информационных флагов</div>`}
+      </div>
+    </div>`}
+  </div>`;
+}
+
+async function extractRedFlags(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project || state.flagsExtracting) return;
+  if (!state.settings.claudeKey) { showToast('Нет API ключа', 'error'); return; }
+
+  state.flagsExtracting = true;
+  render();
+
+  try {
+    const conclusions = AGENTS
+      .filter(a => project.conclusions?.[a.id]?.text)
+      .map(a => `=== ${a.name.toUpperCase()} ===\n${project.conclusions[a.id].text.substring(0, 1500)}`)
+      .join('\n\n');
+
+    const sysPrompt = `Ты — старший DD-аналитик. Проанализируй заключения агентов и извлеки все red flags.
+Верни ТОЛЬКО JSON массив без markdown, без пояснений — только [].
+
+Формат каждого флага:
+{"name":"краткое название флага (до 80 символов)","severity":"critical|significant|info","source":"Имя агента","detail":"1-2 предложения о проблеме"}
+
+Критерии severity:
+- critical: может привести к срыву сделки или катастрофическим последствиям
+- significant: существенная проблема, требует переговоров/корректировки цены
+- info: наблюдение, которое нужно учесть, но не блокирует сделку
+
+Извлеки 10-25 флагов.`;
+
+    const raw = await callClaude(sysPrompt, conclusions);
+    let jsonStr = raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+    const s = jsonStr.indexOf('['); const e = jsonStr.lastIndexOf(']');
+    if (s !== -1 && e !== -1) jsonStr = jsonStr.slice(s, e+1);
+    const items = JSON.parse(jsonStr);
+    if (!Array.isArray(items)) throw new Error('Не массив');
+
+    if (!project.redFlags) project.redFlags = [];
+    let added = 0;
+    items.forEach(item => {
+      if (!item.name) return;
+      if (!project.redFlags.some(f => f.name === item.name)) {
+        project.redFlags.push({ id: generateId(), ...item, createdAt: new Date().toISOString() });
+        added++;
+      }
+    });
+    saveState();
+    showToast(`✅ Извлечено ${added} флагов`, 'success');
+  } catch(e) {
+    showToast('Ошибка извлечения: ' + e.message, 'error', 6000);
+  }
+
+  state.flagsExtracting = false;
+  render();
+}
+
+function addRedFlagManual(projectId) {
+  const name = document.getElementById('flag-name')?.value?.trim();
+  if (!name) { showToast('Введи название флага', 'error'); return; }
+  const source = document.getElementById('flag-source')?.value?.trim() || '';
+  const severity = document.getElementById('flag-severity')?.value || 'significant';
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  if (!project.redFlags) project.redFlags = [];
+  project.redFlags.push({ id: generateId(), name, source, severity, createdAt: new Date().toISOString() });
+  saveState(); render();
+  document.getElementById('flag-name').value = '';
+}
+
+function deleteRedFlag(projectId, flagId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (project) { project.redFlags = (project.redFlags||[]).filter(f => f.id !== flagId); saveState(); render(); }
+}
+
+function updateFlagSeverity(projectId, flagId, severity) {
+  const project = state.projects.find(p => p.id === projectId);
+  const flag = project?.redFlags?.find(f => f.id === flagId);
+  if (flag) { flag.severity = severity; saveState(); render(); }
+}
+
+function printRedFlags(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project?.redFlags?.length) return;
+  const flags = project.redFlags;
+  const critical = flags.filter(f => f.severity === 'critical');
+  const significant = flags.filter(f => f.severity === 'significant');
+  const info = flags.filter(f => f.severity === 'info');
+
+  const renderSection = (title, color, items) => {
+    if (!items.length) return '';
+    return `<h2 style="color:${color};font-size:13pt;margin-top:16pt;border-bottom:2px solid ${color};padding-bottom:4pt">${title}</h2>
+<table style="width:100%;border-collapse:collapse;margin-top:8pt">
+<tr style="background:#f0f0f0"><th style="text-align:left;padding:4pt 6pt;font-size:10pt;width:50%">Флаг</th><th style="text-align:left;padding:4pt 6pt;font-size:10pt;width:15%">Источник</th><th style="text-align:left;padding:4pt 6pt;font-size:10pt">Детали</th></tr>
+${items.map(f => `<tr style="border-bottom:1px solid #ddd"><td style="padding:4pt 6pt;font-size:10pt;vertical-align:top;font-weight:500">${escHtml(f.name)}</td><td style="padding:4pt 6pt;font-size:9pt;color:#666;vertical-align:top">${escHtml(f.source||'')}</td><td style="padding:4pt 6pt;font-size:9pt;color:#444;vertical-align:top">${escHtml(f.detail||'')}</td></tr>`).join('')}
+</table>`;
+  };
+
+  const w = window.open('','_blank','width=900,height=700');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Red Flags — ${escHtml(project.name)}</title>
+<style>body{font-family:'Times New Roman',serif;margin:2cm;color:#111}h1{font-size:18pt;text-align:center}p.sub{text-align:center;color:#555;font-size:11pt;margin-top:4pt}</style>
+</head><body>
+<h1>🚩 Red Flags Report</h1>
+<p class="sub">${escHtml(project.name)} · ${new Date().toLocaleDateString('ru-RU')} · Всего: ${flags.length} флагов</p>
+${renderSection('🔴 Критичные флаги (' + critical.length + ')', '#c00000', critical)}
+${renderSection('🟡 Существенные флаги (' + significant.length + ')', '#e65c00', significant)}
+${renderSection('🔵 К сведению (' + info.length + ')', '#0056b3', info)}
+</body></html>`);
+  w.document.close();
+  setTimeout(() => w.print(), 600);
+}
+
+// ══════════════════════════════════════════════════════════════
+// FEATURE: INVESTMENT MEMO (1 PAGE)
+// ══════════════════════════════════════════════════════════════
+
+async function generateInvestMemo(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project || state.memoRunning) return;
+  if (!state.settings.claudeKey) { showToast('Нет API ключа', 'error'); return; }
+
+  const hasAny = AGENTS.some(a => project.conclusions?.[a.id]?.text);
+  if (!hasAny) { showToast('Нужны заключения агентов для генерации Memo', 'error'); return; }
+
+  state.memoRunning = true;
+  render();
+
+  try {
+    const parts = [
+      project.name ? `Company: ${project.name}` : '',
+      project.industry ? `Industry: ${project.industry}` : '',
+      project.dealType ? `Deal Type: ${project.dealType}` : '',
+      project.sellerPrice ? `Seller Price: $${project.sellerPrice}M` : '',
+      project.task ? `Context: ${project.task.substring(0,400)}` : ''
+    ].filter(Boolean).join('\n');
+
+    const agentSummaries = AGENTS
+      .filter(a => project.conclusions?.[a.id]?.text)
+      .map(a => `[${a.name.toUpperCase()}]\n${project.conclusions[a.id].text.substring(0,1000)}`)
+      .join('\n\n');
+
+    const sysPrompt = `You are a Managing Director at a bulge-bracket investment bank writing a concise 1-page Investment Memo.
+Write in professional English. Be direct, quantitative, and banker-like.
+Structure the memo with these exact sections using markdown headers:
+
+## Transaction Overview
+(2-3 sentences: company, deal type, seller price, proposed structure)
+
+## Business Description
+(2-3 sentences: what the company does, market position, revenue/EBITDA if available)
+
+## Investment Highlights
+(3-5 bullet points with key value drivers)
+
+## Key Risks
+(3-5 bullet points — most critical risks identified in DD)
+
+## Financial Summary
+(Key metrics in a compact table: Revenue, EBITDA, EBITDA margin, Growth, Equity Value range)
+
+## Recommendation
+(1 paragraph: BUY / PASS / CONDITIONAL with clear rationale and suggested price range)
+
+Keep total length to ~600 words maximum. Use numbers wherever possible.`;
+
+    const memo = await callClaude(sysPrompt, `${parts}\n\nDD CONCLUSIONS:\n${agentSummaries}`);
+
+    project.investMemo = { text: memo, createdAt: new Date().toISOString() };
+    saveState();
+    showToast('✅ Investment Memo готов', 'success');
+  } catch(e) {
+    showToast('Ошибка генерации Memo: ' + e.message, 'error', 6000);
+  }
+
+  state.memoRunning = false;
+  render();
+}
+
+function printInvestMemo(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project?.investMemo) return;
+
+  const text = project.investMemo.text;
+  const htmlContent = text
+    .replace(/^## (.+)$/gm, '<h2 style="font-size:12pt;font-weight:bold;margin-top:14pt;margin-bottom:4pt;color:#1e3a5f;border-bottom:1px solid #ccc;padding-bottom:3pt">$1</h2>')
+    .replace(/^### (.+)$/gm, '<h3 style="font-size:11pt;margin-top:10pt;margin-bottom:3pt">$1</h3>')
+    .replace(/^\*\*(.+)\*\*$/gm, '<strong>$1</strong>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^- (.+)$/gm, '<li style="margin-bottom:3pt">$1</li>')
+    .replace(/(<li[^>]*>[\s\S]*?<\/li>\n?)+/g, '<ul style="margin:6pt 0;padding-left:18pt">$&</ul>')
+    .replace(/\|(.+)\|/g, (m) => {
+      const cells = m.split('|').filter(c => c.trim());
+      return '<tr>' + cells.map(c => `<td style="border:1px solid #ccc;padding:3pt 6pt;font-size:9pt">${c.trim()}</td>`).join('') + '</tr>';
+    })
+    .replace(/(<tr>[\s\S]*?<\/tr>\n?)+/g, '<table style="border-collapse:collapse;width:100%;margin:8pt 0">$&</table>')
+    .replace(/\n\n/g, '</p><p style="margin:4pt 0">')
+    .replace(/\n/g, '<br>');
+
+  const w = window.open('','_blank','width=800,height=900');
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Investment Memo — ${escHtml(project.name)}</title>
+<style>
+  body { font-family: 'Times New Roman', serif; font-size: 11pt; margin: 0; color: #111; }
+  .header { background: #1e3a5f; color: white; padding: 20pt 30pt 16pt; }
+  .header h1 { margin: 0; font-size: 18pt; letter-spacing: 0.5pt; }
+  .header .sub { margin: 6pt 0 0; font-size: 10pt; opacity: 0.8; }
+  .confidential { background: #c00; color: white; text-align: center; font-size: 8pt; padding: 3pt; letter-spacing: 2pt; text-transform: uppercase; }
+  .content { padding: 20pt 30pt; }
+  .footer { border-top: 1px solid #ccc; padding: 8pt 30pt; font-size: 8pt; color: #888; display: flex; justify-content: space-between; }
+  p { margin: 4pt 0; line-height: 1.4; }
+  @media print { body { margin: 0; } }
+</style>
+</head><body>
+<div class="confidential">CONFIDENTIAL — NOT FOR DISTRIBUTION</div>
+<div class="header">
+  <h1>📋 Investment Memo</h1>
+  <div class="sub">${escHtml(project.name)} ${project.dealType?'· '+escHtml(project.dealType):''} ${project.industry?'· '+escHtml(project.industry):''}</div>
+  <div class="sub">${new Date().toLocaleDateString('en-US', {year:'numeric',month:'long',day:'numeric'})}</div>
+</div>
+<div class="content"><p>${htmlContent}</p></div>
+<div class="footer"><span>DD Офис · Confidential</span><span>Generated ${new Date().toLocaleDateString('ru-RU')}</span></div>
+</body></html>`);
+  w.document.close();
+  setTimeout(() => w.print(), 700);
+}
+
+// ══════════════════════════════════════════════════════════════
+// FEATURE: COMPARABLE COMPANIES
+// ══════════════════════════════════════════════════════════════
+
+function renderCompsSection(project) {
+  const comps = project.comparables;
+  const running = state.compsRunning;
+  const hasFinModel = !!(project.finModels?.length);
+
+  return `<div class="card overflow-hidden mt-4">
+    <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+      <div>
+        <span class="font-semibold text-white text-sm">🏢 Comparable Companies</span>
+        <span class="text-xs text-slate-500 ml-2">EV/EBITDA · P/E · EV/Rev · Веб-поиск</span>
+      </div>
+      <button onclick="generateComparables('${project.id}')" class="btn-secondary text-sm" ${running?'disabled':''}>
+        ${running ? '<span class="spinner mr-1"></span>Ищу компании...' : comps ? '🔄 Обновить' : '🔍 Найти публичные аналоги'}
+      </button>
+    </div>
+    ${comps ? renderCompsTable(project) : `<div class="p-6 text-center text-slate-500">
+      <div class="text-3xl mb-2">🏢</div>
+      <div class="text-sm">Нажми «Найти публичные аналоги» — Claude найдёт торгующиеся компании-аналоги и построит таблицу мультипликаторов</div>
+      <div class="text-xs mt-1 text-slate-600">Использует web search · Требует Claude API</div>
+    </div>`}
+  </div>`;
+}
+
+function renderCompsTable(project) {
+  const comps = project.comparables;
+  if (!comps?.comps?.length) return '<div class="p-4 text-center text-slate-500 text-sm">Нет данных</div>';
+
+  const target = comps.target || {};
+  const rows = comps.comps;
+
+  const fmtNum = (v) => v != null && v !== '' ? (+v).toFixed(1)+'x' : '—';
+  const fmtPct = (v) => v != null && v !== '' ? (+v).toFixed(1)+'%' : '—';
+
+  // Compute median for each multiple
+  const median = (arr) => {
+    const vals = arr.filter(v => v != null && v !== '' && !isNaN(+v)).map(Number).sort((a,b)=>a-b);
+    if (!vals.length) return null;
+    const m = Math.floor(vals.length/2);
+    return vals.length%2 ? vals[m] : (vals[m-1]+vals[m])/2;
+  };
+  const medEv = median(rows.map(r=>r.evEbitda));
+  const medPe = median(rows.map(r=>r.pe));
+  const medEvRev = median(rows.map(r=>r.evRev));
+
+  return `<div class="overflow-x-auto">
+    <table class="w-full">
+      <thead><tr class="border-b border-slate-600">
+        <th class="px-3 py-2 text-left text-xs text-slate-400 font-medium">Компания</th>
+        <th class="px-3 py-2 text-center text-xs text-slate-400 font-medium w-20">Тикер</th>
+        <th class="px-3 py-2 text-right text-xs text-slate-400 font-medium w-20">EV/EBITDA</th>
+        <th class="px-3 py-2 text-right text-xs text-slate-400 font-medium w-16">P/E</th>
+        <th class="px-3 py-2 text-right text-xs text-slate-400 font-medium w-20">EV/Rev</th>
+        <th class="px-3 py-2 text-right text-xs text-slate-400 font-medium w-24">Мар.кап.</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r => `<tr class="border-b border-slate-800 hover:bg-slate-800/30">
+          <td class="px-3 py-2 text-sm text-slate-200">${escHtml(r.name||'')}<br>${r.note?`<span class="text-xs text-slate-500">${escHtml(r.note)}</span>`:''}</td>
+          <td class="px-3 py-2 text-center text-xs font-mono text-blue-400">${escHtml(r.ticker||'')}</td>
+          <td class="px-3 py-2 text-right text-sm text-white">${fmtNum(r.evEbitda)}</td>
+          <td class="px-3 py-2 text-right text-sm text-white">${fmtNum(r.pe)}</td>
+          <td class="px-3 py-2 text-right text-sm text-white">${fmtNum(r.evRev)}</td>
+          <td class="px-3 py-2 text-right text-xs text-slate-400">${escHtml(r.marketCap||'—')}</td>
+        </tr>`).join('')}
+        <tr class="border-b border-slate-700 bg-slate-800/30">
+          <td class="px-3 py-2 text-xs font-semibold text-slate-400" colspan="2">Медиана аналогов</td>
+          <td class="px-3 py-2 text-right text-xs font-bold text-yellow-300">${medEv!=null?medEv.toFixed(1)+'x':'—'}</td>
+          <td class="px-3 py-2 text-right text-xs font-bold text-yellow-300">${medPe!=null?medPe.toFixed(1)+'x':'—'}</td>
+          <td class="px-3 py-2 text-right text-xs font-bold text-yellow-300">${medEvRev!=null?medEvRev.toFixed(1)+'x':'—'}</td>
+          <td></td>
+        </tr>
+        ${(target.evEbitda || target.pe || target.evRev) ? `<tr class="bg-blue-950/30 border border-blue-800/50">
+          <td class="px-3 py-2 text-sm font-semibold text-blue-300" colspan="2">★ ${escHtml(project.name||'Целевая компания')}</td>
+          <td class="px-3 py-2 text-right text-sm font-bold text-blue-300">${fmtNum(target.evEbitda)}</td>
+          <td class="px-3 py-2 text-right text-sm font-bold text-blue-300">${fmtNum(target.pe)}</td>
+          <td class="px-3 py-2 text-right text-sm font-bold text-blue-300">${fmtNum(target.evRev)}</td>
+          <td></td>
+        </tr>` : ''}
+      </tbody>
+    </table>
+  </div>
+  ${target.comment ? `<div class="px-4 py-3 border-t border-slate-700 text-xs text-slate-400">${escHtml(target.comment)}</div>` : ''}
+  <div class="px-4 py-2 border-t border-slate-700 text-xs text-slate-600">Обновлено: ${new Date(comps.createdAt).toLocaleString('ru-RU')} · Источник: web search</div>`;
+}
+
+async function generateComparables(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project || state.compsRunning) return;
+  if (!state.settings.claudeKey) { showToast('Нет API ключа', 'error'); return; }
+
+  state.compsRunning = true;
+  render();
+
+  try {
+    const finModel = project.finModels?.[0];
+    const ebitdaInfo = finModel?.data?.scenarios?.base
+      ? `EBITDA margin (base): ${(finModel.data.scenarios.base.ebitdaMargin||[]).slice(-1)[0]||'?'}%`
+      : '';
+
+    const context = [
+      `Компания: ${project.name || 'не указана'}`,
+      project.industry ? `Отрасль: ${project.industry}` : '',
+      project.dealType ? `Тип сделки: ${project.dealType}` : '',
+      project.sellerPrice ? `Цена продавца: $${project.sellerPrice}M` : '',
+      ebitdaInfo,
+      project.task ? `Описание бизнеса: ${project.task.substring(0, 600)}` : '',
+      project.conclusions?.marketer?.text ? `Маркетолог: ${project.conclusions.marketer.text.substring(0, 500)}` : ''
+    ].filter(Boolean).join('\n');
+
+    const sysPrompt = `Ты — аналитик equity research. Найди 5-10 публичных компаний-аналогов и построй таблицу мультипликаторов.
+Используй web_search для поиска актуальных данных.
+Верни ТОЛЬКО JSON без markdown:
+
+{
+  "comps": [
+    {"name": "Company Name", "ticker": "TICKER", "evEbitda": 12.5, "pe": 25.3, "evRev": 3.2, "marketCap": "$5.2B", "note": "Почему аналог"}
+  ],
+  "target": {"evEbitda": 8.5, "pe": null, "evRev": 1.2, "comment": "Как оценивается целевая компания относительно аналогов"}
+}
+
+Используй реальные тикеры. Данные по мультипликаторам — LTM (последние 12 мес) или NTM (следующие 12 мес), укажи в note.
+Если данных по целевой компании недостаточно — оставь target как null значения.`;
+
+    const raw = await callClaude(sysPrompt, context);
+    let jsonStr = raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+    const s = jsonStr.indexOf('{'); const e = jsonStr.lastIndexOf('}');
+    if (s !== -1 && e !== -1) jsonStr = jsonStr.slice(s, e+1);
+    const data = JSON.parse(jsonStr);
+    if (!data.comps) throw new Error('Неверная структура');
+
+    project.comparables = { ...data, createdAt: new Date().toISOString() };
+    saveState();
+    showToast(`✅ Найдено ${data.comps.length} аналогов`, 'success');
+  } catch(e) {
+    showToast('Ошибка поиска аналогов: ' + e.message, 'error', 6000);
+  }
+
+  state.compsRunning = false;
   render();
 }
 
