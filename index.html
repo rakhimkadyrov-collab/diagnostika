@@ -490,24 +490,33 @@ async function extractText(file) {
 // CLAUDE API
 // ══════════════════════════════════════════════════════════════
 
+async function claudeFetch(key, body) {
+  const direct = 'https://api.anthropic.com/v1/messages';
+  const proxy  = 'https://corsproxy.io/?url=' + encodeURIComponent(direct);
+  const headers = {
+    'x-api-key': key,
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-allow-browser': 'true',
+    'content-type': 'application/json'
+  };
+  // Try direct first, fall back to proxy
+  try {
+    const res = await fetch(direct, { method: 'POST', headers, body });
+    if (res.status !== 0) return res; // got a real response (even error)
+  } catch (_) {}
+  return fetch(proxy, { method: 'POST', headers, body });
+}
+
 async function callClaude(systemPrompt, userContent) {
   const key = state.settings.claudeKey;
   if (!key) throw new Error('API ключ не настроен. Перейдите в ⚙️ Настройки.');
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': key,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-allow-browser': 'true',
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: state.settings.claudeModel || 'claude-sonnet-4-6',
-      max_tokens: 4000,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userContent }]
-    })
+  const body = JSON.stringify({
+    model: state.settings.claudeModel || 'claude-sonnet-4-6',
+    max_tokens: 4000,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userContent }]
   });
+  const res = await claudeFetch(key, body);
   if (!res.ok) {
     let msg = 'Ошибка Claude API';
     try { const err = await res.json(); msg = err.error?.message || msg; } catch(e) {}
@@ -952,13 +961,10 @@ function renderSettings() {
 async function testClaudeKey() {
   const key = document.getElementById('s-claude-key').value.trim();
   if (!key) { showToast('Введите ключ', 'error'); return; }
-  showToast('Проверяю ключ...', 'info', 3000);
+  showToast('Проверяю ключ...', 'info', 4000);
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-allow-browser': 'true', 'content-type': 'application/json' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 10, messages: [{ role: 'user', content: 'Hi' }] })
-    });
+    const body = JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 10, messages: [{ role: 'user', content: 'Hi' }] });
+    const res = await claudeFetch(key, body);
     if (res.ok) showToast('✅ Claude API ключ работает!', 'success');
     else {
       let msg = 'Неверный ключ';
@@ -966,12 +972,7 @@ async function testClaudeKey() {
       showToast('❌ ' + msg, 'error', 7000);
     }
   } catch (e) {
-    const msg = e?.message || String(e);
-    if (location.protocol === 'file:') {
-      showToast('❌ Откройте через HTTPS (не file://). Используйте GitHub Pages или Netlify.', 'error', 7000);
-    } else {
-      showToast('❌ Ошибка сети: ' + msg, 'error', 7000);
-    }
+    showToast('❌ Ошибка сети: ' + (e?.message || String(e)), 'error', 7000);
   }
 }
 
