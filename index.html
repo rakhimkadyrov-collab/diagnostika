@@ -398,6 +398,7 @@ let state = {
   currentTab: 'overview',
   newProject: { step: 1, data: {}, files: [] },
   runningAgent: null,
+  editingTask: false,
   settings: { claudeKey: '', notionToken: '', claudeModel: 'claude-sonnet-4-6' },
   sessionUsage: { inputTokens: 0, outputTokens: 0, cost: 0 }
 };
@@ -822,6 +823,7 @@ function navigate(page, opts = {}) {
   if (opts.projectId) state.currentProjectId = opts.projectId;
   if (opts.tab) state.currentTab = opts.tab;
   if (page === 'new-project') state.newProject = { step: 1, data: {}, files: [] };
+  state.editingTask = false;
   render();
   window.scrollTo(0, 0);
 }
@@ -1194,17 +1196,38 @@ function renderOverviewTab(project) {
       <div class="progress-bar"><div class="progress-fill" style="width:${getProgress(project)}%"></div></div>
     </div>
   </div>
-  ${project.task?`<div class="card p-4 mb-4">
-    <div class="text-xs text-slate-400 mb-2">Задача</div>
-    <div class="text-sm text-slate-300 whitespace-pre-wrap">${escHtml(project.task)}</div>
-  </div>`:''}
-  ${project.files?.length?`<div class="card p-4">
-    <div class="text-xs text-slate-400 mb-2">Файлы (${project.files.length})</div>
-    <div class="space-y-1">${project.files.map(f=>`<div class="text-sm text-slate-300 flex items-center gap-2">
-      <span>📎</span><span>${escHtml(f.name)}</span>
-      <span class="text-xs text-slate-500">${((f.text||'').length/1000).toFixed(0)}к символов</span>
-    </div>`).join('')}</div>
-  </div>`:''}`;
+
+  <div class="card p-4 mb-4">
+    <div class="flex items-center justify-between mb-2">
+      <div class="text-xs text-slate-400">Задача</div>
+      ${!state.editingTask ? `<button onclick="startEditTask()" class="btn-ghost text-xs px-2 py-1">✏️ Редактировать</button>` : ''}
+    </div>
+    ${state.editingTask ? `
+      <textarea id="edit-task-input" class="input text-sm" rows="7" style="resize:vertical">${escHtml(project.task||'')}</textarea>
+      <div class="flex gap-2 mt-3">
+        <button onclick="saveTaskEdit()" class="btn-primary text-sm">💾 Сохранить</button>
+        <button onclick="cancelTaskEdit()" class="btn-secondary text-sm">Отмена</button>
+      </div>
+    ` : `<div class="text-sm text-slate-300 whitespace-pre-wrap">${project.task ? escHtml(project.task) : '<span class="text-slate-500">Задача не указана</span>'}</div>`}
+  </div>
+
+  <div class="card p-4">
+    <div class="flex items-center justify-between mb-3">
+      <div class="text-xs text-slate-400">Файлы (${project.files?.length || 0})</div>
+      <label class="btn-ghost text-xs px-2 py-1 cursor-pointer">
+        📎 Добавить файлы
+        <input type="file" multiple accept=".pdf,.xlsx,.xls,.docx,.txt" style="display:none" onchange="addProjectFiles('${project.id}', this.files)">
+      </label>
+    </div>
+    ${project.files?.length ? `<div class="space-y-1.5">
+      ${project.files.map((f,i)=>`<div class="flex items-center gap-2 text-sm text-slate-300">
+        <span class="text-base">${f.name.endsWith('.pdf')?'📄':f.name.match(/\.xlsx?$/)?'📊':f.name.endsWith('.docx')?'📝':'📋'}</span>
+        <span class="flex-1 truncate">${escHtml(f.name)}</span>
+        <span class="text-xs text-slate-500 flex-shrink-0">${((f.text||'').length/1000).toFixed(0)}к</span>
+        <button onclick="removeProjectFile('${project.id}',${i})" class="text-slate-600 hover:text-red-400 text-lg leading-none flex-shrink-0" title="Удалить файл">×</button>
+      </div>`).join('')}
+    </div>` : `<div class="text-xs text-slate-500">Нет загруженных файлов — добавьте материалы клиента</div>`}
+  </div>`;
 }
 
 function renderAgentsTab(project) {
@@ -1289,6 +1312,49 @@ function renderReportTab(project) {
 // ══════════════════════════════════════════════════════════════
 // ACTIONS
 // ══════════════════════════════════════════════════════════════
+
+function startEditTask() { state.editingTask = true; render(); }
+function cancelTaskEdit() { state.editingTask = false; render(); }
+function saveTaskEdit() {
+  const project = getProject();
+  if (!project) return;
+  const newTask = document.getElementById('edit-task-input')?.value?.trim();
+  if (!newTask) { showToast('Задача не может быть пустой', 'error'); return; }
+  project.task = newTask;
+  saveState();
+  state.editingTask = false;
+  showToast('✅ Задача обновлена', 'success');
+  render();
+}
+
+async function addProjectFiles(projectId, fileList) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  if (!project.files) project.files = [];
+  for (const file of Array.from(fileList)) {
+    showToast(`⏳ Читаю ${file.name}...`, 'info', 3000);
+    try {
+      const text = await extractText(file);
+      project.files.push({ name: file.name, text });
+      saveState();
+      showToast(`✅ ${file.name} добавлен`, 'success', 2000);
+      render();
+    } catch (e) {
+      showToast(`❌ ${file.name}: ${e.message}`, 'error', 5000);
+    }
+  }
+}
+
+function removeProjectFile(projectId, index) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  const name = project.files[index]?.name || 'файл';
+  if (confirm(`Удалить "${name}" из проекта?`)) {
+    project.files.splice(index, 1);
+    saveState();
+    render();
+  }
+}
 
 function nextStep1() {
   const name = document.getElementById('np-name')?.value?.trim();
