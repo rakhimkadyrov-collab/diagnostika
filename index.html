@@ -408,6 +408,8 @@ let state = {
   historyAgentId: null,
   finModelRunning: false,
   finModelYears: 5,
+  riskExtracting: false,
+  enSummaryRunning: false,
   settings: { claudeKey: '', notionToken: '', claudeModel: 'claude-sonnet-4-6' },
   sessionUsage: { inputTokens: 0, outputTokens: 0, cost: 0 }
 };
@@ -1406,7 +1408,8 @@ function renderProject() {
     { id: 'agents', label: '🤖 Агенты' },
     { id: 'report', label: '📄 Отчёт' },
     { id: 'checklist', label: '✅ Задачи' },
-    { id: 'finmodel', label: '📊 Финмодель' }
+    { id: 'finmodel', label: '📊 Финмодель' },
+    { id: 'risks', label: '🎯 Риски' }
   ];
   return `<div class="max-w-5xl mx-auto">
     <div class="px-6 pt-5 pb-0">
@@ -1432,7 +1435,7 @@ function renderProject() {
       </div>
     </div>
     <div class="p-6">
-      ${state.currentTab==='overview' ? renderOverviewTab(project) : state.currentTab==='agents' ? renderAgentsTab(project) : state.currentTab==='checklist' ? renderChecklistTab(project) : state.currentTab==='finmodel' ? renderFinModelTab(project) : renderReportTab(project)}
+      ${state.currentTab==='overview' ? renderOverviewTab(project) : state.currentTab==='agents' ? renderAgentsTab(project) : state.currentTab==='checklist' ? renderChecklistTab(project) : state.currentTab==='finmodel' ? renderFinModelTab(project) : state.currentTab==='risks' ? renderRiskMatrixTab(project) : renderReportTab(project)}
     </div>
   </div>`;
 }
@@ -1494,7 +1497,9 @@ function renderOverviewTab(project) {
         <button onclick="removeProjectFile('${project.id}',${i})" class="text-slate-600 hover:text-red-400 text-lg leading-none flex-shrink-0" title="Удалить файл">×</button>
       </div>`).join('')}
     </div>` : `<div class="text-xs text-slate-500">Нет загруженных файлов — добавьте материалы клиента</div>`}
-  </div>`;
+  </div>
+
+  ${renderGanttSection(project)}`;
 }
 
 function renderAgentsTab(project) {
@@ -1643,7 +1648,20 @@ function renderReportTab(project) {
     <button onclick="exportWordDoc(getProject(),'${agentForExport||''}')" class="btn-secondary text-sm">📄 Word${sel ? ' (раздел)' : ''}</button>
     <button onclick="downloadTxt(getProject())" class="btn-secondary text-sm">⬇ .txt</button>
     <button onclick="handleSaveToNotion()" class="btn-secondary text-sm" id="notion-save-btn">💾 Notion</button>
-  </div>`;
+    <button onclick="generateEnglishSummary('${project.id}')" class="btn-secondary text-sm" ${state.enSummaryRunning?'disabled':''}>
+      ${state.enSummaryRunning ? '<span class="spinner mr-1"></span>' : '🌐'} English Summary
+    </button>
+  </div>
+  ${project.executiveSummaryEN ? `<div class="card overflow-hidden border-blue-800/50 mb-5">
+    <div class="px-4 py-3 flex items-center gap-2 border-b border-blue-800/30 no-print" style="background:rgba(30,58,138,0.2)">
+      <span class="text-base">🇬🇧</span>
+      <span class="font-semibold text-blue-300 text-sm">Executive Summary (English)</span>
+      <span class="text-xs text-slate-500 ml-auto">${new Date(project.executiveSummaryEN.createdAt).toLocaleString('ru-RU')}</span>
+      <button onclick="printEnglishSummary('${project.id}')" class="btn-ghost text-xs px-2 py-0.5 no-print" title="Print / PDF">🖨</button>
+      <button onclick="getProject().executiveSummaryEN=null;saveState();render()" class="btn-ghost text-xs px-2 py-0.5 no-print text-slate-500">✕</button>
+    </div>
+    <div class="p-4 markdown text-sm">${renderMarkdown(project.executiveSummaryEN.text)}</div>
+  </div>` : ''}`;
 
   // Content
   let content = '';
@@ -1672,6 +1690,7 @@ function renderReportTab(project) {
             </div>`).join('')}
           </div>
         </div>` : ''}
+        ${renderAgentNotesPanel(project, agent.id)}
       </div>`;
     }).join('');
   }
@@ -1695,6 +1714,7 @@ function renderReportTab(project) {
           </div>`).join('')}
         </div>
       </div>` : ''}
+      ${renderAgentNotesPanel(project, 'ceo')}
     </div>`;
   }
   return pills + actions + `<div class="space-y-0">${content}</div>`;
@@ -2546,6 +2566,491 @@ function exportFinModelXlsx(projectId, modelIdx) {
     showToast('Ошибка генерации Excel: ' + e.message, 'error', 8000);
     console.error('Excel error:', e);
   }
+}
+
+// ══════════════════════════════════════════════════════════════
+// FEATURE: GANTT TIMELINE
+// ══════════════════════════════════════════════════════════════
+
+const GANTT_PHASES_DEFAULT = [
+  {id:'prep',     name:'Подготовка',          days:5,  color:'#3B82F6'},
+  {id:'field',    name:'Полевая работа',       days:14, color:'#8B5CF6'},
+  {id:'analysis', name:'Анализ данных',        days:7,  color:'#F59E0B'},
+  {id:'report',   name:'Отчётность',           days:7,  color:'#10B981'},
+  {id:'close',    name:'Закрытие сделки',      days:5,  color:'#EF4444'},
+];
+
+function getGanttPhases(project) {
+  if (project.ganttPhases?.length) return project.ganttPhases;
+  const start = new Date(project.createdAt || Date.now());
+  let cur = new Date(start);
+  return GANTT_PHASES_DEFAULT.map(p => {
+    const s = cur.toISOString().slice(0,10);
+    cur = new Date(cur.getTime() + p.days * 86400000);
+    return {...p, start: s, end: cur.toISOString().slice(0,10)};
+  });
+}
+
+function saveGanttPhase(projectId, phaseId, field, value) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  if (!project.ganttPhases) project.ganttPhases = getGanttPhases(project);
+  const phase = project.ganttPhases.find(p => p.id === phaseId);
+  if (phase) { phase[field] = value; saveState(); render(); }
+}
+
+function renderGanttSection(project) {
+  const phases = getGanttPhases(project);
+  const today = new Date().toISOString().slice(0,10);
+
+  // Compute overall range
+  const allDates = phases.flatMap(p => [p.start, p.end]).filter(Boolean).sort();
+  const minDate = new Date(allDates[0] || today);
+  const maxDate = new Date(allDates[allDates.length-1] || today);
+  const totalMs = Math.max(maxDate - minDate, 1);
+
+  const todayMs = new Date(today) - minDate;
+  const todayPct = Math.min(100, Math.max(0, todayMs / totalMs * 100));
+
+  const phaseRows = phases.map(p => {
+    const pStart = new Date(p.start || today);
+    const pEnd = new Date(p.end || today);
+    const leftPct = Math.max(0, (pStart - minDate) / totalMs * 100);
+    const widthPct = Math.max(1, (pEnd - pStart) / totalMs * 100);
+    const isPast = p.end && p.end < today;
+    const isActive = p.start <= today && p.end >= today;
+    return `<div class="flex items-center gap-3 mb-1.5">
+      <div class="w-32 text-xs text-slate-400 flex-shrink-0 text-right pr-2">${p.name}</div>
+      <div class="flex-1 relative" style="height:20px">
+        <div class="absolute inset-0 bg-slate-800 rounded"></div>
+        <div class="absolute rounded" style="left:${leftPct}%;width:${widthPct}%;height:100%;background:${p.color};opacity:${isPast?0.4:1}"></div>
+        ${isActive ? `<div class="absolute rounded" style="left:${leftPct}%;width:${widthPct}%;height:100%;background:${p.color};animation:pulse 2s infinite"></div>` : ''}
+        <div class="absolute top-0 bottom-0 w-px bg-yellow-400" style="left:${todayPct}%;z-index:10" title="Сегодня"></div>
+      </div>
+      <div class="flex gap-1 flex-shrink-0">
+        <input type="date" class="text-xs bg-transparent border border-slate-700 rounded px-1 py-0.5 text-slate-400 w-28" value="${p.start||''}" onchange="saveGanttPhase('${project.id}','${p.id}','start',this.value)">
+        <span class="text-xs text-slate-600">–</span>
+        <input type="date" class="text-xs bg-transparent border border-slate-700 rounded px-1 py-0.5 text-slate-400 w-28" value="${p.end||''}" onchange="saveGanttPhase('${project.id}','${p.id}','end',this.value)">
+      </div>
+    </div>`;
+  }).join('');
+
+  // Month labels
+  const monthLabels = [];
+  const cur = new Date(minDate);
+  while (cur <= maxDate) {
+    const pct = (cur - minDate) / totalMs * 100;
+    monthLabels.push(`<div class="absolute text-xs text-slate-600" style="left:${pct}%">${cur.toLocaleDateString('ru-RU',{month:'short'})}</div>`);
+    cur.setMonth(cur.getMonth() + 1);
+  }
+
+  return `<div class="card p-4 mt-4">
+    <div class="flex items-center justify-between mb-3">
+      <div class="text-xs text-slate-400">Таймлайн DD</div>
+      ${project.ganttPhases ? `<button onclick="getProject().ganttPhases=null;saveState();render()" class="btn-ghost text-xs px-2 py-0.5 text-slate-500">↺ Сброс</button>` : ''}
+    </div>
+    <div class="mb-1 relative h-4 flex items-end ml-32">
+      ${monthLabels.join('')}
+      <div class="absolute h-full w-px bg-yellow-400/50" style="left:${todayPct}%" title="Сегодня: ${today}"></div>
+    </div>
+    ${phaseRows}
+    <div class="mt-2 ml-32 pl-2 flex gap-2 flex-wrap">
+      <span class="text-xs text-yellow-300">▏ Сегодня: ${new Date(today).toLocaleDateString('ru-RU')}</span>
+      ${project.deadline ? `<span class="text-xs text-slate-400">· Дедлайн DD: ${new Date(project.deadline).toLocaleDateString('ru-RU')}</span>` : ''}
+    </div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// FEATURE: AGENT NOTES (COMMENTS)
+// ══════════════════════════════════════════════════════════════
+
+function renderAgentNotesPanel(project, agentId) {
+  const notes = project.agentNotes?.[agentId] || [];
+  const noteInputId = `note-input-${agentId}`;
+  return `<div class="border-t border-slate-700/50 px-4 py-3 no-print">
+    <div class="text-xs text-slate-500 mb-2">📝 Заметки аналитика${notes.length ? ` (${notes.length})` : ''}</div>
+    ${notes.map(n => `<div class="flex gap-2 mb-1.5 group">
+      <div class="flex-1 text-xs text-slate-300 bg-slate-800/50 rounded px-2 py-1.5 leading-relaxed">${escHtml(n.text)}<span class="text-slate-600 ml-2">${new Date(n.ts).toLocaleString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}</span></div>
+      <button onclick="deleteAgentNote('${project.id}','${agentId}','${n.id}')" class="text-slate-700 hover:text-red-400 text-sm opacity-0 group-hover:opacity-100 transition-opacity">×</button>
+    </div>`).join('')}
+    <div class="flex gap-2 mt-1">
+      <input id="${noteInputId}" type="text" class="input text-xs flex-1 py-1.5" placeholder="Добавить заметку / комментарий к разделу..." onkeydown="if(event.key==='Enter'){addAgentNote('${project.id}','${agentId}',this.value);this.value=''}">
+      <button onclick="const el=document.getElementById('${noteInputId}');addAgentNote('${project.id}','${agentId}',el.value);el.value=''" class="btn-secondary text-xs px-3 py-1.5">+ Добавить</button>
+    </div>
+  </div>`;
+}
+
+function addAgentNote(projectId, agentId, text) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project || !text?.trim()) return;
+  if (!project.agentNotes) project.agentNotes = {};
+  if (!project.agentNotes[agentId]) project.agentNotes[agentId] = [];
+  project.agentNotes[agentId].push({id: generateId(), text: text.trim(), ts: new Date().toISOString()});
+  saveState(); render();
+}
+
+function deleteAgentNote(projectId, agentId, noteId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (project?.agentNotes?.[agentId]) {
+    project.agentNotes[agentId] = project.agentNotes[agentId].filter(n => n.id !== noteId);
+    saveState(); render();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// FEATURE: ENGLISH EXECUTIVE SUMMARY
+// ══════════════════════════════════════════════════════════════
+
+async function generateEnglishSummary(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project || state.enSummaryRunning) return;
+  if (!state.settings.claudeKey) { showToast('Нет API ключа', 'error'); return; }
+
+  const completedAgents = AGENTS.filter(a => project.conclusions?.[a.id]?.text);
+  if (!completedAgents.length) { showToast('Нет заключений агентов', 'error'); return; }
+
+  state.enSummaryRunning = true;
+  render();
+
+  try {
+    const conclusionsText = completedAgents.map(a =>
+      `## ${a.name.toUpperCase()} (${a.short})\n${project.conclusions[a.id].text.substring(0, 2000)}`
+    ).join('\n\n---\n\n');
+
+    const sysPrompt = `You are a senior investment banking analyst (Goldman Sachs / McKinsey level).
+Write a professional Executive Summary in English based on the provided Due Diligence conclusions.
+
+Format the summary as follows:
+
+## EXECUTIVE SUMMARY
+[2-3 sentence investment thesis]
+
+## TRANSACTION OVERVIEW
+[Deal type, parties, key parameters]
+
+## KEY FINDINGS
+### Commercial
+[2-3 bullet points from marketing/commercial analysis]
+
+### Financial
+[2-3 bullet points — key financials, valuation range]
+
+### Legal & Tax
+[2-3 bullet points — critical legal/tax risks]
+
+### Operational
+[2-3 bullet points — operational risks and capex needs]
+
+## RISK MATRIX (Top 5)
+[Table: Risk | Probability | Impact | Mitigation]
+
+## VALUATION SUMMARY
+[Price range, methodology, key value drivers]
+
+## RECOMMENDATION
+**PROCEED / RENEGOTIATE PRICE / WALK AWAY**
+[1-paragraph rationale]
+
+Write in professional investment banking English. Be concise — target 1.5-2 pages.`;
+
+    const userContent = `Project: ${project.name}
+Industry: ${project.industry || 'N/A'}
+Deal Type: ${project.dealType || 'N/A'}
+${project.sellerPrice ? `Seller's Asking Price: $${project.sellerPrice}M` : ''}
+${project.targetPrice ? `Target Price: $${project.targetPrice}M` : ''}
+
+DUE DILIGENCE CONCLUSIONS:
+
+${conclusionsText}`;
+
+    const text = await callClaude(sysPrompt, userContent);
+    project.executiveSummaryEN = {text, createdAt: new Date().toISOString()};
+    saveState();
+    showToast('✅ English Executive Summary готов', 'success');
+  } catch (e) {
+    showToast('❌ Ошибка: ' + e.message, 'error', 6000);
+  }
+
+  state.enSummaryRunning = false;
+  render();
+}
+
+function printEnglishSummary(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project?.executiveSummaryEN) return;
+  const date = new Date().toLocaleDateString('en-US', {year:'numeric', month:'long', day:'numeric'});
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
+  <title>Executive Summary — ${escHtml(project.name)}</title>
+  <style>
+    body{font-family:'Times New Roman',serif;font-size:11pt;color:#1a1a2e;margin:0;padding:0;background:#fff;}
+    .cover{background:#0A2855;color:#fff;padding:60px 72px;min-height:180px;}
+    .c-brand{font-family:Arial,sans-serif;font-size:9pt;letter-spacing:3px;text-transform:uppercase;color:#A8B8D8;margin-bottom:32px;}
+    .c-label{font-size:9pt;letter-spacing:2px;text-transform:uppercase;color:#A8B8D8;margin-bottom:8px;}
+    .c-title{font-size:22pt;font-weight:700;margin-bottom:4px;}
+    .c-conf{font-size:8pt;color:#A8B8D8;margin-top:24px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.2);}
+    .body{padding:40px 72px;max-width:800px;margin:0 auto;}
+    h2{font-size:12pt;font-weight:700;color:#0A2855;margin:24px 0 8px;padding-bottom:4px;border-bottom:2px solid #0A2855;}
+    h3{font-size:10.5pt;font-weight:700;color:#334155;margin:16px 0 6px;}
+    p,li{font-size:10.5pt;line-height:1.7;margin:4px 0;}
+    ul{margin:4px 0 8px 20px;}
+    table{width:100%;border-collapse:collapse;margin:12px 0;font-size:9.5pt;}
+    table th{background:#0A2855;color:#fff;padding:6px 10px;text-align:left;}
+    table td{border:1px solid #D5DDE8;padding:5px 10px;}
+    table tr:nth-child(even) td{background:#F8FAFC;}
+    strong{color:#0A2855;}
+    @media print{@page{margin:18mm 22mm;size:A4;}}
+  </style></head><body>
+  <div class="cover">
+    <div class="c-brand">⚖️ DD Office · Due Diligence</div>
+    <div class="c-label">Executive Summary — Confidential</div>
+    <div class="c-title">${escHtml(project.name)}</div>
+    ${project.dealType ? `<div style="font-size:11pt;color:#A8B8D8;margin-top:8px">${escHtml(project.dealType)}${project.industry ? ' · ' + escHtml(project.industry) : ''}</div>` : ''}
+    <div class="c-conf">CONFIDENTIAL — FOR ADDRESSEE ONLY · ${date} · DD Office</div>
+  </div>
+  <div class="body">${renderMarkdown(project.executiveSummaryEN.text)}</div>
+  </body></html>`;
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 800);
+}
+
+// ══════════════════════════════════════════════════════════════
+// FEATURE: RISK MATRIX
+// ══════════════════════════════════════════════════════════════
+
+function renderRiskMatrixTab(project) {
+  const risks = project.riskItems || [];
+  const running = state.riskExtracting;
+  const hasRiskConclusion = !!project.conclusions?.risk?.text;
+
+  // 5×5 grid — bucket risks by cell
+  const risksByCell = {};
+  risks.forEach(r => {
+    const key = `${r.probability||1}-${r.impact||1}`;
+    if (!risksByCell[key]) risksByCell[key] = [];
+    risksByCell[key].push(r);
+  });
+
+  const cellColor = (p, i) => {
+    const score = p * i;
+    if (score >= 20) return '#7f1d1d'; // critical — red
+    if (score >= 12) return '#7c2d12'; // high — orange-red
+    if (score >= 6)  return '#78350f'; // medium — amber
+    if (score >= 3)  return '#1e3a1f'; // low-medium — green-ish
+    return '#0f2720';                   // low — dark green
+  };
+  const textColor = (p, i) => {
+    const score = p * i;
+    if (score >= 20) return '#fca5a5';
+    if (score >= 12) return '#fdba74';
+    if (score >= 6)  return '#fcd34d';
+    if (score >= 3)  return '#86efac';
+    return '#6ee7b7';
+  };
+
+  // Build 5×5 grid (rows=probability 5→1, cols=impact 1→5)
+  let gridHtml = '<div style="display:grid;grid-template-columns:24px repeat(5,1fr);gap:2px" class="mb-6">';
+  // Column headers
+  gridHtml += '<div></div>';
+  ['1','2','3','4','5'].forEach(n => gridHtml += `<div class="text-center text-xs text-slate-500 pb-1">Ущерб ${n}</div>`);
+
+  for (let prob = 5; prob >= 1; prob--) {
+    gridHtml += `<div class="text-xs text-slate-500 flex items-center justify-end pr-1" style="writing-mode:initial">P${prob}</div>`;
+    for (let impact = 1; impact <= 5; impact++) {
+      const key = `${prob}-${impact}`;
+      const cell = risksByCell[key] || [];
+      const bg = cellColor(prob, impact);
+      const tc = textColor(prob, impact);
+      gridHtml += `<div style="background:${bg};border-radius:4px;min-height:56px;padding:4px;position:relative" class="cursor-pointer" onclick="addRiskItemToCell('${project.id}',${prob},${impact})">
+        ${cell.map(r => `<div style="background:rgba(255,255,255,0.12);border-radius:3px;padding:2px 4px;margin-bottom:2px;position:relative" class="group">
+          <span style="font-size:10px;color:${tc};line-height:1.2;display:block">${escHtml((r.name||'').substring(0,30))}</span>
+          <button onclick="event.stopPropagation();deleteRiskItem('${project.id}','${r.id}')" style="position:absolute;top:0;right:2px;color:rgba(255,255,255,0.3);font-size:12px;background:none;border:none;cursor:pointer;line-height:1" class="group-hover:opacity-100 opacity-0">×</button>
+        </div>`).join('')}
+      </div>`;
+    }
+  }
+  gridHtml += '</div>';
+
+  // Legend
+  const legend = `<div class="flex gap-3 mb-5 flex-wrap">
+    <div class="flex items-center gap-1.5 text-xs"><div style="width:14px;height:14px;border-radius:3px;background:#7f1d1d"></div><span class="text-slate-400">Критично (20-25)</span></div>
+    <div class="flex items-center gap-1.5 text-xs"><div style="width:14px;height:14px;border-radius:3px;background:#7c2d12"></div><span class="text-slate-400">Высокий (12-19)</span></div>
+    <div class="flex items-center gap-1.5 text-xs"><div style="width:14px;height:14px;border-radius:3px;background:#78350f"></div><span class="text-slate-400">Средний (6-11)</span></div>
+    <div class="flex items-center gap-1.5 text-xs"><div style="width:14px;height:14px;border-radius:3px;background:#1e3a1f"></div><span class="text-slate-400">Низкий-средний (3-5)</span></div>
+    <div class="flex items-center gap-1.5 text-xs"><div style="width:14px;height:14px;border-radius:3px;background:#0f2720"></div><span class="text-slate-400">Низкий (1-2)</span></div>
+  </div>`;
+
+  // Risk list
+  const sortedRisks = [...risks].sort((a,b) => (b.probability||1)*(b.impact||1) - (a.probability||1)*(a.impact||1));
+  const riskList = risks.length ? `<div class="card overflow-hidden">
+    <div class="px-4 py-3 border-b border-slate-700 text-xs text-slate-400">Реестр рисков (${risks.length})</div>
+    <table class="w-full">
+      <thead><tr class="border-b border-slate-700 text-xs">
+        <th class="px-3 py-2 text-left text-slate-400 font-medium">Риск</th>
+        <th class="px-3 py-2 text-center text-slate-400 font-medium w-16">Вероятн.</th>
+        <th class="px-3 py-2 text-center text-slate-400 font-medium w-16">Ущерб</th>
+        <th class="px-3 py-2 text-center text-slate-400 font-medium w-16">Скор</th>
+        <th class="px-3 py-2 text-left text-slate-400 font-medium w-24">Категория</th>
+        <th class="w-8"></th>
+      </tr></thead>
+      <tbody>
+        ${sortedRisks.map(r => {
+          const score = (r.probability||1)*(r.impact||1);
+          const scoreColor = score>=20?'text-red-400':score>=12?'text-orange-400':score>=6?'text-yellow-400':'text-green-400';
+          return `<tr class="border-b border-slate-800 hover:bg-slate-800/30">
+            <td class="px-3 py-2 text-sm text-slate-200">${escHtml(r.name||'')}</td>
+            <td class="px-3 py-2 text-center">
+              <select onchange="updateRiskItem('${project.id}','${r.id}','probability',+this.value)" class="bg-transparent text-xs text-slate-300 border-0 outline-none">
+                ${[1,2,3,4,5].map(n=>`<option value="${n}" ${r.probability===n?'selected':''}>${n}</option>`).join('')}
+              </select>
+            </td>
+            <td class="px-3 py-2 text-center">
+              <select onchange="updateRiskItem('${project.id}','${r.id}','impact',+this.value)" class="bg-transparent text-xs text-slate-300 border-0 outline-none">
+                ${[1,2,3,4,5].map(n=>`<option value="${n}" ${r.impact===n?'selected':''}>${n}</option>`).join('')}
+              </select>
+            </td>
+            <td class="px-3 py-2 text-center text-sm font-bold ${scoreColor}">${score}</td>
+            <td class="px-3 py-2 text-xs text-slate-500">${escHtml(r.category||'—')}</td>
+            <td class="px-3 py-2"><button onclick="deleteRiskItem('${project.id}','${r.id}')" class="text-slate-700 hover:text-red-400 text-base">×</button></td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  </div>` : '';
+
+  // Manual add form
+  const addForm = `<div class="card p-3 mb-4 flex gap-2 items-end flex-wrap">
+    <div class="flex-1 min-w-32">
+      <div class="text-xs text-slate-500 mb-1">Название риска</div>
+      <input id="risk-name" type="text" class="input text-sm" placeholder="Опиши риск кратко..." onkeydown="if(event.key==='Enter')addRiskItemManual('${project.id}')">
+    </div>
+    <div>
+      <div class="text-xs text-slate-500 mb-1">Вероятность</div>
+      <select id="risk-prob" class="input text-sm w-20">${[1,2,3,4,5].map(n=>`<option value="${n}">${n}</option>`).join('')}</select>
+    </div>
+    <div>
+      <div class="text-xs text-slate-500 mb-1">Ущерб</div>
+      <select id="risk-impact" class="input text-sm w-20">${[1,2,3,4,5].map(n=>`<option value="${n}">${n}</option>`).join('')}</select>
+    </div>
+    <div>
+      <div class="text-xs text-slate-500 mb-1">Категория</div>
+      <select id="risk-cat" class="input text-sm w-28">
+        ${['Финансовый','Правовой','Операционный','Рыночный','Регуляторный','Налоговый','Репутационный','Другой'].map(c=>`<option>${c}</option>`).join('')}
+      </select>
+    </div>
+    <button onclick="addRiskItemManual('${project.id}')" class="btn-primary text-sm px-4 py-2">+ Добавить</button>
+  </div>`;
+
+  return `<div>
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-base font-semibold text-white">🎯 Матрица рисков</h2>
+        <div class="text-xs text-slate-400 mt-0.5">5×5 · Вероятность × Ущерб · Кликни ячейку для добавления риска</div>
+      </div>
+      <div class="flex gap-2">
+        ${hasRiskConclusion ? `<button onclick="extractRiskMatrix('${project.id}')" class="btn-secondary text-sm" ${running?'disabled':''}>
+          ${running ? '<span class="spinner mr-1"></span>Извлекаю...' : '✨ Извлечь из заключения'}
+        </button>` : ''}
+      </div>
+    </div>
+    ${addForm}
+    <div class="card p-4 mb-4">
+      <div class="flex text-xs text-slate-500 mb-2 ml-6">
+        <div class="flex-1 text-center">← Ущерб →</div>
+      </div>
+      <div class="flex">
+        <div class="flex flex-col justify-center mr-2 text-xs text-slate-500" style="writing-mode:vertical-rl;transform:rotate(180deg);height:${5*58}px">← Вероятность →</div>
+        <div class="flex-1">${gridHtml}</div>
+      </div>
+    </div>
+    ${legend}
+    ${riskList}
+  </div>`;
+}
+
+function addRiskItemToCell(projectId, probability, impact) {
+  const name = prompt('Название риска:');
+  if (!name?.trim()) return;
+  const cat = prompt('Категория (Финансовый, Правовой, Операционный, ...):') || 'Другой';
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  if (!project.riskItems) project.riskItems = [];
+  project.riskItems.push({id: generateId(), name: name.trim(), probability, impact, category: cat.trim(), createdAt: new Date().toISOString()});
+  saveState(); render();
+}
+
+function addRiskItemManual(projectId) {
+  const name = document.getElementById('risk-name')?.value?.trim();
+  if (!name) { showToast('Введи название риска', 'error'); return; }
+  const prob = +document.getElementById('risk-prob')?.value || 3;
+  const impact = +document.getElementById('risk-impact')?.value || 3;
+  const cat = document.getElementById('risk-cat')?.value || 'Другой';
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  if (!project.riskItems) project.riskItems = [];
+  project.riskItems.push({id: generateId(), name, probability: prob, impact, category: cat, createdAt: new Date().toISOString()});
+  saveState(); render();
+  document.getElementById('risk-name').value = '';
+}
+
+function updateRiskItem(projectId, itemId, field, value) {
+  const project = state.projects.find(p => p.id === projectId);
+  const item = project?.riskItems?.find(r => r.id === itemId);
+  if (item) { item[field] = value; saveState(); render(); }
+}
+
+function deleteRiskItem(projectId, itemId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (project) { project.riskItems = (project.riskItems||[]).filter(r => r.id !== itemId); saveState(); render(); }
+}
+
+async function extractRiskMatrix(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project || state.riskExtracting) return;
+  if (!state.settings.claudeKey) { showToast('Нет API ключа', 'error'); return; }
+  const riskText = project.conclusions?.risk?.text;
+  if (!riskText) { showToast('Нет заключения рисковика', 'error'); return; }
+
+  state.riskExtracting = true;
+  render();
+
+  try {
+    const sysPrompt = `Ты — аналитик рисков. Извлеки риски из заключения и верни ТОЛЬКО JSON массив.
+Без markdown, без пояснений — только массив [].
+
+Формат каждого риска:
+{"name":"краткое название риска (до 50 символов)","probability":1-5,"impact":1-5,"category":"Финансовый|Правовой|Операционный|Рыночный|Регуляторный|Налоговый|Репутационный|Другой"}
+
+Шкала:
+- Вероятность 1=очень низкая, 3=умеренная, 5=почти наверняка
+- Ущерб 1=незначительный, 3=существенный, 5=критичный/потеря сделки
+
+Извлеки 5-15 наиболее значимых рисков.`;
+
+    const raw = await callClaude(sysPrompt, riskText.substring(0, 8000));
+    let jsonStr = raw.trim().replace(/^```(?:json)?\s*/i,'').replace(/\s*```\s*$/,'').trim();
+    const s = jsonStr.indexOf('['); const e = jsonStr.lastIndexOf(']');
+    if (s !== -1 && e !== -1) jsonStr = jsonStr.slice(s, e+1);
+    const items = JSON.parse(jsonStr);
+    if (!Array.isArray(items)) throw new Error('Не массив');
+
+    if (!project.riskItems) project.riskItems = [];
+    items.forEach(item => {
+      if (!item.name) return;
+      if (!project.riskItems.some(r => r.name === item.name)) {
+        project.riskItems.push({id: generateId(), ...item, createdAt: new Date().toISOString()});
+      }
+    });
+    saveState();
+    showToast(`✅ Извлечено ${items.length} рисков`, 'success');
+  } catch(e) {
+    showToast('Ошибка извлечения: ' + e.message, 'error', 6000);
+  }
+
+  state.riskExtracting = false;
+  render();
 }
 
 // ══════════════════════════════════════════════════════════════
