@@ -406,6 +406,8 @@ let state = {
   searchAgentId: null,
   searchInput: '',
   historyAgentId: null,
+  finModelRunning: false,
+  finModelYears: 5,
   settings: { claudeKey: '', notionToken: '', claudeModel: 'claude-sonnet-4-6' },
   sessionUsage: { inputTokens: 0, outputTokens: 0, cost: 0 }
 };
@@ -1403,7 +1405,8 @@ function renderProject() {
     { id: 'overview', label: '📋 Обзор' },
     { id: 'agents', label: '🤖 Агенты' },
     { id: 'report', label: '📄 Отчёт' },
-    { id: 'checklist', label: '✅ Задачи' }
+    { id: 'checklist', label: '✅ Задачи' },
+    { id: 'finmodel', label: '📊 Финмодель' }
   ];
   return `<div class="max-w-5xl mx-auto">
     <div class="px-6 pt-5 pb-0">
@@ -1429,7 +1432,7 @@ function renderProject() {
       </div>
     </div>
     <div class="p-6">
-      ${state.currentTab==='overview' ? renderOverviewTab(project) : state.currentTab==='agents' ? renderAgentsTab(project) : state.currentTab==='checklist' ? renderChecklistTab(project) : renderReportTab(project)}
+      ${state.currentTab==='overview' ? renderOverviewTab(project) : state.currentTab==='agents' ? renderAgentsTab(project) : state.currentTab==='checklist' ? renderChecklistTab(project) : state.currentTab==='finmodel' ? renderFinModelTab(project) : renderReportTab(project)}
     </div>
   </div>`;
 }
@@ -1749,6 +1752,800 @@ function renderChecklistTab(project) {
       }).join('')}
     </div>
   </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// FINANCIAL MODEL — UI
+// ══════════════════════════════════════════════════════════════
+
+function renderFinModelTab(project) {
+  const models = project.finModels || [];
+  const latest = models[0];
+  const running = state.finModelRunning;
+  const hasConclusions = project.conclusions?.financier?.text || project.conclusions?.risk?.text;
+
+  const yearBtns = [3, 5, 7].map(y =>
+    `<button onclick="state.finModelYears=${y};render()" class="btn-${state.finModelYears===y?'primary':'secondary'} text-xs px-3 py-1.5">${y} лет</button>`
+  ).join('');
+
+  let preview = '';
+  if (latest) {
+    const d = latest.data;
+    const sc = d.scenarios || {};
+    const keys = ['pessimistic','base','optimistic'];
+    const scNames = { pessimistic:'🔴 Пессимист', base:'🟡 Реалист', optimistic:'🟢 Оптимист' };
+    const cols = keys.filter(k => sc[k]);
+
+    const metricRow = (label, fn) =>
+      `<tr class="border-b border-slate-700"><td class="py-2 pr-4 text-xs text-slate-400 w-48">${label}</td>${cols.map(k => `<td class="py-2 px-3 text-xs text-right text-white">${fn(sc[k], d)}</td>`).join('')}</tr>`;
+
+    const avgRevGrowth = (s) => {
+      const g = s.revenueGrowth || [];
+      return g.length ? (g.reduce((a,b)=>a+b,0)/g.length).toFixed(1)+'%' : '—';
+    };
+    const avgMargin = (arr) => {
+      if (!arr?.length) return '—';
+      return (arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)+'%';
+    };
+    const equityVal = (s, d) => {
+      const H = (d.historicalYears||[]).length;
+      const F = (d.forecastYears||[]).length;
+      return _fmComputeEquityValue(d, s.id || Object.keys(d.scenarios).find(k => d.scenarios[k]===s));
+    };
+
+    // Compute equity values for weighted average
+    const evVals = {};
+    cols.forEach(k => { evVals[k] = _fmComputeEquityValue(d, k); });
+    const weightedEV = cols.reduce((sum, k) => sum + evVals[k] * (sc[k].probability||0)/100, 0);
+    const sellerPrice = parseFloat(project.sellerPrice) || 0;
+    const discount = sellerPrice ? ((weightedEV - sellerPrice) / sellerPrice * 100).toFixed(1) : null;
+
+    preview = `
+    <div class="card overflow-hidden mb-4">
+      <div class="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+        <div class="text-sm font-semibold text-white">Финмодель · ${escHtml(d.company||project.name)} · ${d.forecastYears?.length||0} лет</div>
+        <div class="text-xs text-slate-500">${new Date(latest.createdAt).toLocaleString('ru-RU')}</div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full">
+          <thead><tr class="border-b border-slate-600">
+            <th class="py-2 pr-4 text-left text-xs text-slate-400 w-48">Показатель</th>
+            ${cols.map(k => `<th class="py-2 px-3 text-right text-xs ${k==='base'?'text-yellow-300':k==='optimistic'?'text-green-400':'text-red-400'}">${scNames[k]}<br><span class="text-slate-500 font-normal">P=${sc[k].probability}%</span></th>`).join('')}
+          </tr></thead>
+          <tbody>
+            ${metricRow('CAGR выручки', (s) => avgRevGrowth(s))}
+            ${metricRow('WACC', (s) => (s.wacc||'—')+'%')}
+            ${metricRow('Терм. рост', (s) => (s.terminalGrowth||'—')+'%')}
+            ${metricRow('EBITDA margin (ср.)', (s) => avgMargin(s.ebitdaMargin))}
+            ${metricRow('Equity Value, '+escHtml(d.currencyUnit||'млн'), (s,dd) => {
+              const k = Object.keys(dd.scenarios).find(x => dd.scenarios[x]===s);
+              return Math.round(evVals[k]).toLocaleString('ru-RU');
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div class="px-4 py-3 bg-slate-800/50 border-t border-slate-700">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div>
+            <div class="text-xs text-slate-400 mb-0.5">Взвешенная Equity Value</div>
+            <div class="text-xl font-bold text-white">${Math.round(weightedEV).toLocaleString('ru-RU')} ${escHtml(d.currencyUnit||'млн')} ${escHtml(d.currency||'')}</div>
+            ${sellerPrice ? `<div class="text-xs mt-0.5 ${parseFloat(discount)>=0?'text-green-400':'text-red-400'}">${parseFloat(discount)>=0?'▲ Выше':'▼ Ниже'} цены продавца на ${Math.abs(parseFloat(discount))}% · продавец: ${sellerPrice} ${escHtml(d.currencyUnit||'млн')}</div>` : ''}
+          </div>
+          <div class="flex gap-2 flex-wrap">
+            <button onclick="exportFinModelXlsx('${project.id}', 0)" class="btn-primary text-sm">📥 Скачать Excel (.xlsx)</button>
+            <button onclick="generateFinModel('${project.id}')" class="btn-secondary text-sm" ${running?'disabled':''}>🔄 Пересчитать</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-4 mb-4">
+      <div class="text-xs font-semibold text-slate-400 mb-3">Допущения по сценариям</div>
+      ${cols.map(k => {
+        const s = sc[k]; const a = s.assumptions || {};
+        return `<div class="mb-3 last:mb-0">
+          <div class="text-xs font-medium ${k==='base'?'text-yellow-300':k==='optimistic'?'text-green-400':'text-red-400'} mb-1">${scNames[k]} (${s.probability}%)</div>
+          ${a.revenue?`<div class="text-xs text-slate-300 mb-0.5">📈 <span class="text-slate-500">Выручка:</span> ${escHtml(a.revenue)}</div>`:''}
+          ${a.margin?`<div class="text-xs text-slate-300 mb-0.5">💰 <span class="text-slate-500">Маржа:</span> ${escHtml(a.margin)}</div>`:''}
+          ${a.wacc?`<div class="text-xs text-slate-300 mb-0.5">📉 <span class="text-slate-500">WACC:</span> ${escHtml(a.wacc)}</div>`:''}
+          ${a.probability?`<div class="text-xs text-slate-400 italic">${escHtml(a.probability)}</div>`:''}
+        </div>`;
+      }).join('')}
+    </div>`;
+  }
+
+  return `<div>
+    <div class="flex items-center justify-between mb-4">
+      <div>
+        <h2 class="text-base font-semibold text-white">📊 Финансовая модель</h2>
+        <div class="text-xs text-slate-400 mt-0.5">3 сценария с DCF-оценкой · Excel с формулами</div>
+      </div>
+      ${models.length > 0 ? `<div class="text-xs text-slate-500">${models.length} версий</div>` : ''}
+    </div>
+
+    ${!hasConclusions ? `<div class="card p-6 text-center text-slate-500 mb-4">
+      <div class="text-3xl mb-2">🤖</div>
+      <div class="text-sm">Для построения финмодели нужны заключения агентов</div>
+      <div class="text-xs mt-1">Минимум — финансист и рисковик</div>
+      <button onclick="switchTab('agents')" class="btn-primary mt-3 text-sm">Перейти к агентам</button>
+    </div>` : ''}
+
+    ${hasConclusions && !latest ? `<div class="card p-6 text-center mb-4">
+      <div class="text-3xl mb-2">📊</div>
+      <div class="text-sm text-white mb-1">Финмодель ещё не построена</div>
+      <div class="text-xs text-slate-400 mb-4">Claude проанализирует заключения финансиста и рисковика и построит трёхсценарную модель с DCF</div>
+    </div>` : ''}
+
+    ${hasConclusions ? `<div class="card p-4 mb-4 flex items-center gap-4 flex-wrap">
+      <div>
+        <div class="text-xs text-slate-400 mb-1">Горизонт прогноза</div>
+        <div class="flex gap-1.5">${yearBtns}</div>
+      </div>
+      <button onclick="generateFinModel('${project.id}')" class="btn-primary ml-auto" ${running?'disabled':''}>
+        ${running ? `<span class="spinner mr-2"></span>Строю модель...` : latest ? '🔄 Перестроить модель' : '🚀 Построить финмодель'}
+      </button>
+    </div>` : ''}
+
+    ${preview}
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+// FINANCIAL MODEL — GENERATE (Claude API)
+// ══════════════════════════════════════════════════════════════
+
+async function generateFinModel(projectId) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project || state.finModelRunning) return;
+  if (!state.settings.claudeKey) { showToast('Нет API ключа', 'error'); return; }
+
+  const financierText = project.conclusions?.financier?.text || '';
+  const riskText = project.conclusions?.risk?.text || '';
+  const ceoText = project.conclusions?.ceo?.text || '';
+  const auditorText = project.conclusions?.auditor?.text || '';
+
+  if (!financierText && !riskText) {
+    showToast('Нужны заключения финансиста и/или рисковика', 'error'); return;
+  }
+
+  state.finModelRunning = true;
+  render();
+
+  try {
+    const F = state.finModelYears || 5;
+    const curYear = new Date().getFullYear();
+    const foreYears = Array.from({length: F}, (_, i) => curYear + i);
+
+    const sysPrompt = `Ты — финансовый моделлер уровня инвестиционного банка (McKinsey/Goldman Sachs).
+На основе заключений DD-анализа построй трёхсценарную финансовую модель.
+
+КРИТИЧНО: Верни ТОЛЬКО валидный JSON без какого-либо текста до или после. Без markdown, без \`\`\`json, только объект {}.
+
+Все числа — в единицах "${project.industry ? 'отрасли' : 'компании'}" (миллионы местной валюты если не указано иное).
+
+ОБЯЗАТЕЛЬНАЯ СТРУКТУРА JSON:
+{
+  "company": "название компании",
+  "currency": "USD",
+  "currencyUnit": "млн",
+  "forecastHorizon": ${F},
+  "historicalYears": [последние 3 года факта, напр. 2022, 2023, 2024],
+  "forecastYears": [${foreYears.join(', ')}],
+  "historical": {
+    "revenue": [3 числа по годам],
+    "cogs": [3 числа — себестоимость],
+    "grossProfit": [3 числа],
+    "grossMargin": [3 числа в % — например 34],
+    "opex": [3 числа — без D&A],
+    "ebitda": [3 числа],
+    "ebitdaMargin": [3 числа в %],
+    "da": [3 числа — амортизация],
+    "ebit": [3 числа],
+    "interest": [3 числа — расходы по долгу],
+    "ebt": [3 числа],
+    "taxRate": 20,
+    "netIncome": [3 числа],
+    "capex": [3 числа],
+    "wcChange": [3 числа — изменение об. капитала],
+    "fcf": [3 числа],
+    "debt": число — долг на последнюю отчётную дату,
+    "cash": число — денежные средства
+  },
+  "scenarios": {
+    "pessimistic": {
+      "name": "Пессимист",
+      "probability": 30,
+      "wacc": 14.0,
+      "terminalGrowth": 1.0,
+      "revenueGrowth": [${F} чисел в % по годам прогноза],
+      "grossMargin": [${F} чисел в %],
+      "ebitdaMargin": [${F} чисел в %],
+      "capexPct": [${F} чисел в % от выручки],
+      "wcChangePct": [${F} чисел в % от выручки],
+      "daAbsolute": [${F} чисел — D&A по годам],
+      "interestSchedule": [${F} чисел — проценты по годам],
+      "taxRate": 20,
+      "assumptions": {
+        "revenue": "краткое обоснование прогноза выручки (1-2 предл.)",
+        "margin": "обоснование маржи",
+        "capex": "обоснование CAPEX",
+        "wacc": "обоснование WACC (структура: безриск + ERP*beta + специф.риск)",
+        "probability": "почему такая вероятность сценария"
+      }
+    },
+    "base": { аналогично, вероятность ~50%, WACC умеренный },
+    "optimistic": { аналогично, вероятность ~20%, WACC низкий }
+  }
+}
+
+ПРАВИЛА:
+1. Все массивы — строго нужной длины (3 для исторических, ${F} для прогноза)
+2. grossProfit ≈ revenue * grossMargin/100; ebitda ≈ revenue * ebitdaMargin/100; fcf ≈ netIncome + da - capex - wcChange
+3. Сумма вероятностей = 100%
+4. Используй данные из заключений. Если точных цифр нет — делай разумные отраслевые оценки
+5. WACC: безриск≈9%, ERP≈6%, бета — отраслевая. В пессимисте выше из-за рисков`;
+
+    const userContent = `ПРОЕКТ: ${project.name}
+ОТРАСЛЬ: ${project.industry || 'не указана'}
+ТИП СДЕЛКИ: ${project.dealType || 'не указан'}
+${project.sellerPrice ? `ЦЕНА ПРОДАВЦА: $${project.sellerPrice} млн` : ''}
+${project.targetPrice ? `ЦЕЛЕВАЯ ЦЕНА: $${project.targetPrice} млн` : ''}
+
+ЗАКЛЮЧЕНИЕ ФИНАНСИСТА:
+${financierText.substring(0, 5000)}
+
+ЗАКЛЮЧЕНИЕ РИСКОВИКА:
+${riskText.substring(0, 3000)}
+
+${auditorText ? `ЗАКЛЮЧЕНИЕ АУДИТОРА (краткое):
+${auditorText.substring(0, 1500)}` : ''}
+
+${ceoText ? `ВЕРДИКТ CEO (краткое):
+${ceoText.substring(0, 1000)}` : ''}
+
+Горизонт прогноза: ${F} лет (${foreYears[0]}–${foreYears[foreYears.length-1]}).`;
+
+    const rawResp = await callClaude(sysPrompt, userContent);
+
+    let jsonStr = rawResp.trim();
+    // Strip markdown code fences if Claude wrapped it anyway
+    jsonStr = jsonStr.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+    // Find first { to last }
+    const start = jsonStr.indexOf('{');
+    const end = jsonStr.lastIndexOf('}');
+    if (start !== -1 && end !== -1) jsonStr = jsonStr.slice(start, end + 1);
+
+    const finData = JSON.parse(jsonStr);
+
+    if (!project.finModels) project.finModels = [];
+    project.finModels.unshift({ id: generateId(), createdAt: new Date().toISOString(), forecastYears: F, data: finData });
+    project.finModels = project.finModels.slice(0, 5);
+    saveState();
+    showToast('✅ Финансовая модель построена!', 'success');
+  } catch (e) {
+    showToast('❌ Ошибка финмодели: ' + e.message, 'error', 8000);
+    console.error('FinModel error:', e);
+  }
+
+  state.finModelRunning = false;
+  render();
+}
+
+// ══════════════════════════════════════════════════════════════
+// FINANCIAL MODEL — EXCEL EXPORT
+// ══════════════════════════════════════════════════════════════
+
+function _fmC(colIdx) { // 0=A, 1=B, ...
+  if (colIdx < 26) return String.fromCharCode(65 + colIdx);
+  return String.fromCharCode(65 + Math.floor(colIdx/26) - 1) + String.fromCharCode(65 + colIdx%26);
+}
+function _fmRef(row, col) { return `${_fmC(col)}${row}`; }
+function _fmR(n, dec) { return Math.round(n * Math.pow(10, dec||1)) / Math.pow(10, dec||1); }
+
+function _fmCell(ws, row, col, val, isFormula) {
+  const ref = _fmRef(row, col);
+  if (isFormula) { ws[ref] = { t: 'n', f: String(val) }; }
+  else if (typeof val === 'number') { ws[ref] = { t: 'n', v: val }; }
+  else if (val !== null && val !== undefined && val !== '') { ws[ref] = { t: 's', v: String(val) }; }
+}
+
+function _fmComputeEquityValue(d, sk) {
+  const sc = d.scenarios?.[sk];
+  if (!sc) return 0;
+  const H = (d.historicalYears||[]).length;
+  const F = (d.forecastYears||[]).length;
+  const wacc = (sc.wacc || 12) / 100;
+  const tg = (sc.terminalGrowth || 2.5) / 100;
+
+  // Compute forecast revenue
+  const histRev = d.historical?.revenue || [];
+  const foreRevs = [];
+  let prevR = histRev[histRev.length-1] || 1000;
+  for (let i = 0; i < F; i++) {
+    prevR = prevR * (1 + (sc.revenueGrowth?.[i] || 5) / 100);
+    foreRevs.push(prevR);
+  }
+  // Compute FCF for each forecast year
+  const foreNI = foreRevs.map((r, i) => {
+    const ebitda = r * (sc.ebitdaMargin?.[i] || 15) / 100;
+    const da = sc.daAbsolute?.[i] || (d.historical?.da?.[H-1] || 40) * Math.pow(1.05, i+1);
+    const interest = sc.interestSchedule?.[i] || 20;
+    const taxRate = (sc.taxRate || d.historical?.taxRate || 20) / 100;
+    const ebt = ebitda - da - interest;
+    const tax = Math.max(0, ebt) * taxRate;
+    return ebt - tax;
+  });
+  const foreDA = foreRevs.map((_, i) => sc.daAbsolute?.[i] || (d.historical?.da?.[H-1]||40)*Math.pow(1.05,i+1));
+  const foreCapex = foreRevs.map((r, i) => r * (sc.capexPct?.[i] || 7) / 100);
+  const foreWC = foreRevs.map((r, i) => r * (sc.wcChangePct?.[i] || 1) / 100);
+  const foreFCF = foreNI.map((ni, i) => ni + foreDA[i] - foreCapex[i] - foreWC[i]);
+
+  const pvFCFs = foreFCF.map((fcf, i) => fcf / Math.pow(1 + wacc, i + 1));
+  const sumPV = pvFCFs.reduce((a, b) => a + b, 0);
+  const termFCF = foreFCF[foreFCF.length-1] * (1 + tg);
+  const tv = wacc > tg ? termFCF / (wacc - tg) : 0;
+  const pvTV = tv / Math.pow(1 + wacc, F);
+  const ev = sumPV + pvTV;
+  return ev - (d.historical?.debt || 0) + (d.historical?.cash || 0);
+}
+
+function _fmBuildScenarioSheet(d, sk) {
+  const sc = d.scenarios?.[sk];
+  if (!sc) return null;
+  const H = (d.historicalYears||[]).length;
+  const F = (d.forecastYears||[]).length;
+  const histYears = d.historicalYears || [];
+  const foreYears = d.forecastYears || [];
+
+  const LC = 0; // label column index
+  const firstH = 1; // first historical column (B)
+  const firstF = 1 + H; // first forecast column
+  const lastF = firstF + F - 1;
+
+  const ws = {};
+  const S = (r, c, v) => _fmCell(ws, r, c, v, false);
+  const F_ = (r, c, f) => _fmCell(ws, r, c, f, true);
+  const R = (r, c) => _fmRef(r, c);
+
+  // ── HEADER ──
+  S(1, LC, `${d.company || 'Компания'} — Финансовая модель`);
+  S(2, LC, `Сценарий: ${sc.name} · вероятность ${sc.probability}% · WACC=${sc.wacc}% · g=${sc.terminalGrowth}% · ${F} лет прогноза`);
+  S(3, LC, '');
+
+  // ── ROW 4: column headers ──
+  S(4, LC, 'Показатель, ' + (d.currencyUnit||'млн') + ' ' + (d.currency||'USD'));
+  histYears.forEach((y, i) => S(4, firstH+i, `${y} (факт)`));
+  foreYears.forEach((y, i) => S(4, firstF+i, `${y} (прогноз)`));
+
+  // ── ROWS 5-12: ASSUMPTION INPUTS (editable) ──
+  S(5, LC, '── ВХОДНЫЕ ПАРАМЕТРЫ (синие ячейки — меняй, P&L пересчитается) ──');
+
+  S(6, LC, 'Рост выручки, %');
+  const histRev = d.historical?.revenue || [];
+  histYears.forEach((y, i) => {
+    if (i===0) { S(6, firstH, '—'); return; }
+    const prev = histRev[i-1]||1; const cur = histRev[i]||prev;
+    S(6, firstH+i, _fmR((cur/prev-1)*100));
+  });
+  foreYears.forEach((y, i) => S(6, firstF+i, sc.revenueGrowth?.[i] ?? 5));
+
+  S(7, LC, 'Gross Margin, %');
+  (d.historical?.grossMargin||[]).forEach((m, i) => S(7, firstH+i, m));
+  (sc.grossMargin||[]).forEach((m, i) => S(7, firstF+i, m));
+
+  S(8, LC, 'EBITDA Margin, %');
+  (d.historical?.ebitdaMargin||[]).forEach((m, i) => S(8, firstH+i, m));
+  (sc.ebitdaMargin||[]).forEach((m, i) => S(8, firstF+i, m));
+
+  S(9, LC, 'CAPEX / Выручка, %');
+  const histCapex = d.historical?.capex||[];
+  histYears.forEach((y, i) => S(9, firstH+i, histRev[i] ? _fmR((histCapex[i]||0)/histRev[i]*100) : 7));
+  (sc.capexPct||[]).forEach((p, i) => S(9, firstF+i, p));
+
+  S(10, LC, 'ΔОборотный капитал / Выручка, %');
+  const histWC = d.historical?.wcChange||[];
+  histYears.forEach((y, i) => S(10, firstH+i, histRev[i] ? _fmR((histWC[i]||0)/histRev[i]*100) : 1));
+  (sc.wcChangePct||[]).forEach((p, i) => S(10, firstF+i, p));
+
+  S(11, LC, 'D&A (абс.), ' + (d.currencyUnit||'млн'));
+  (d.historical?.da||[]).forEach((v, i) => S(11, firstH+i, v));
+  (sc.daAbsolute||[]).forEach((v, i) => S(11, firstF+i, v));
+
+  S(12, LC, 'Проценты (абс.), ' + (d.currencyUnit||'млн'));
+  (d.historical?.interest||[]).forEach((v, i) => S(12, firstH+i, v));
+  (sc.interestSchedule||[]).forEach((v, i) => S(12, firstF+i, v));
+
+  S(13, LC, 'Ставка налога на прибыль, %');
+  S(13, firstH, sc.taxRate || d.historical?.taxRate || 20);
+
+  S(14, LC, '');
+
+  // ── ROW 15: P&L SECTION ──
+  S(15, LC, '── P&L / FCF ──');
+  histYears.forEach((y, i) => S(15, firstH+i, `${y} (факт)`));
+  foreYears.forEach((y, i) => S(15, firstF+i, `${y} (прогноз)`));
+
+  // ROW 16: REVENUE
+  S(16, LC, 'Выручка');
+  (d.historical?.revenue||[]).forEach((r, i) => S(16, firstH+i, r));
+  foreYears.forEach((y, i) => {
+    const fc = firstF + i;
+    const prevR = i===0 ? R(16, firstF-1) : R(16, fc-1);
+    F_(16, fc, `=${prevR}*(1+${R(6,fc)}/100)`);
+  });
+
+  // ROW 17: Revenue growth %
+  S(17, LC, '  рост, %');
+  histYears.forEach((y, i) => {
+    if (i===0) { S(17, firstH, '—'); return; }
+    F_(17, firstH+i, `=(${R(16,firstH+i)}/${R(16,firstH+i-1)}-1)*100`);
+  });
+  foreYears.forEach((y, i) => {
+    const fc = firstF+i;
+    const prevR = i===0 ? R(16, firstF-1) : R(16, fc-1);
+    F_(17, fc, `=(${R(16,fc)}/${prevR}-1)*100`);
+  });
+
+  S(18, LC, '');
+
+  // ROW 19: COGS
+  S(19, LC, 'Себестоимость');
+  (d.historical?.cogs || histRev.map((r,i) => r*(1-(d.historical?.grossMargin?.[i]||35)/100))).forEach((c, i) => S(19, firstH+i, -Math.round(c)));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(19, fc, `=-${R(16,fc)}*(1-${R(7,fc)}/100)`); });
+
+  // ROW 20: Gross Profit
+  S(20, LC, 'Валовая прибыль');
+  (d.historical?.grossProfit || histRev.map((r,i) => r*(d.historical?.grossMargin?.[i]||35)/100)).forEach((g, i) => S(20, firstH+i, Math.round(g)));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(20, fc, `=${R(16,fc)}+${R(19,fc)}`); });
+
+  // ROW 21: GM%
+  S(21, LC, '  GM, %');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(21, c, `=${R(20,c)}/${R(16,c)}*100`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(21, fc, `=${R(20,fc)}/${R(16,fc)}*100`); });
+
+  // ROW 22: OPEX (derived: GP - EBITDA = Rev*(GM%-EBITDA%)/100)
+  S(22, LC, 'OPEX (без D&A)');
+  (d.historical?.opex || histRev.map((r,i) => r*((d.historical?.grossMargin?.[i]||35)-(d.historical?.ebitdaMargin?.[i]||15))/100)).forEach((o, i) => S(22, firstH+i, -Math.round(o)));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(22, fc, `=-${R(16,fc)}*(${R(7,fc)}-${R(8,fc)})/100`); });
+
+  // ROW 23: EBITDA
+  S(23, LC, 'EBITDA');
+  (d.historical?.ebitda || histRev.map((r,i) => r*(d.historical?.ebitdaMargin?.[i]||15)/100)).forEach((e, i) => S(23, firstH+i, Math.round(e)));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(23, fc, `=${R(16,fc)}*${R(8,fc)}/100`); });
+
+  // ROW 24: EBITDA%
+  S(24, LC, '  EBITDA margin, %');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(24, c, `=${R(23,c)}/${R(16,c)}*100`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(24, fc, `=${R(23,fc)}/${R(16,fc)}*100`); });
+
+  // ROW 25: D&A (negated from row 11)
+  S(25, LC, 'D&A');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(25, c, `=-${R(11,c)}`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(25, fc, `=-${R(11,fc)}`); });
+
+  // ROW 26: EBIT
+  S(26, LC, 'EBIT');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(26, c, `=${R(23,c)}+${R(25,c)}`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(26, fc, `=${R(23,fc)}+${R(25,fc)}`); });
+
+  // ROW 27: Interest (negated from row 12)
+  S(27, LC, 'Процентные расходы');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(27, c, `=-${R(12,c)}`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(27, fc, `=-${R(12,fc)}`); });
+
+  // ROW 28: EBT
+  S(28, LC, 'EBT');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(28, c, `=${R(26,c)}+${R(27,c)}`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(28, fc, `=${R(26,fc)}+${R(27,fc)}`); });
+
+  // ROW 29: Tax
+  const taxRef = R(13, firstH);
+  S(29, LC, 'Налог на прибыль');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(29, c, `=IF(${R(28,c)}>0,-${R(28,c)}*$${_fmC(firstH)}$13/100,0)`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(29, fc, `=IF(${R(28,fc)}>0,-${R(28,fc)}*$${_fmC(firstH)}$13/100,0)`); });
+
+  // ROW 30: Net Income
+  S(30, LC, 'Чистая прибыль');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(30, c, `=${R(28,c)}+${R(29,c)}`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(30, fc, `=${R(28,fc)}+${R(29,fc)}`); });
+
+  // ROW 31: NP%
+  S(31, LC, '  NP margin, %');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(31, c, `=${R(30,c)}/${R(16,c)}*100`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(31, fc, `=${R(30,fc)}/${R(16,fc)}*100`); });
+
+  S(32, LC, '');
+
+  // ROW 33: CAPEX
+  S(33, LC, 'CAPEX');
+  (d.historical?.capex||[]).forEach((c, i) => S(33, firstH+i, -Math.round(c)));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(33, fc, `=-${R(16,fc)}*${R(9,fc)}/100`); });
+
+  // ROW 34: WC Change
+  S(34, LC, 'Изменение оборотного капитала');
+  (d.historical?.wcChange||[]).forEach((w, i) => S(34, firstH+i, -Math.round(w)));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(34, fc, `=-${R(16,fc)}*${R(10,fc)}/100`); });
+
+  // ROW 35: FCF = NI + D&A_addback + CAPEX(neg) + WC(neg)
+  // D&A row 25 = -D&A_abs (negative), so to add back: -R(25) = D&A_abs
+  // CAPEX row 33 = -CAPEX_abs (negative), WC row 34 = -WC_abs (negative)
+  // FCF = NI - row25 + row33 + row34
+  S(35, LC, 'Free Cash Flow');
+  [firstH, firstH+1, firstH+2].slice(0, H).forEach(c => F_(35, c, `=${R(30,c)}-${R(25,c)}+${R(33,c)}+${R(34,c)}`));
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(35, fc, `=${R(30,fc)}-${R(25,fc)}+${R(33,fc)}+${R(34,fc)}`); });
+
+  S(36, LC, '');
+
+  // ── DCF SECTION ──
+  S(37, LC, '── DCF ОЦЕНКА ──');
+  S(38, LC, 'WACC, %');
+  S(38, firstH, sc.wacc || 12);
+  S(39, LC, 'Темп роста (terminal), %');
+  S(39, firstH, sc.terminalGrowth || 2.5);
+  S(40, LC, '');
+
+  // ROW 41: Discount factors
+  S(41, LC, 'Фактор дисконтирования');
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(41, fc, `=1/(1+$${_fmC(firstH)}$38/100)^${i+1}`); });
+
+  // ROW 42: PV FCF
+  S(42, LC, 'PV FCF');
+  foreYears.forEach((_, i) => { const fc=firstF+i; F_(42, fc, `=${R(35,fc)}*${R(41,fc)}`); });
+
+  S(43, LC, '');
+
+  // Summary DCF
+  const pvFcfRange = `${_fmC(firstF)}42:${_fmC(lastF)}42`;
+  S(44, LC, 'Сумма PV FCF');
+  F_(44, firstH, `=SUM(${pvFcfRange})`);
+
+  S(45, LC, 'FCF терминального периода');
+  F_(45, firstH, `=${R(35, lastF)}*(1+$${_fmC(firstH)}$39/100)`);
+
+  S(46, LC, 'Terminal Value');
+  F_(46, firstH, `=${R(45,firstH)}/($${_fmC(firstH)}$38/100-$${_fmC(firstH)}$39/100)`);
+
+  S(47, LC, 'PV Terminal Value');
+  F_(47, firstH, `=${R(46,firstH)}/(1+$${_fmC(firstH)}$38/100)^${F}`);
+
+  S(48, LC, 'Enterprise Value (DCF)');
+  F_(48, firstH, `=${R(44,firstH)}+${R(47,firstH)}`);
+
+  S(49, LC, '');
+  S(50, LC, 'Минус долг (факт)');
+  S(50, firstH, -(d.historical?.debt || 0));
+
+  S(51, LC, 'Плюс денежные средства (факт)');
+  S(51, firstH, d.historical?.cash || 0);
+
+  S(52, LC, 'EQUITY VALUE');
+  F_(52, firstH, `=${R(48,firstH)}+${R(50,firstH)}+${R(51,firstH)}`);
+
+  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:52, c:lastF}});
+  ws['!cols'] = [{wch:38}, ...Array(H+F).fill({wch:15})];
+
+  return ws;
+}
+
+function _fmBuildSummarySheet(d, project) {
+  const keys = ['pessimistic','base','optimistic'];
+  const validKeys = keys.filter(k => d.scenarios?.[k]);
+  const H = (d.historicalYears||[]).length;
+  const ws = {};
+  const S = (r, c, v) => _fmCell(ws, r, c, v, false);
+  const F_ = (r, c, f) => _fmCell(ws, r, c, f, true);
+  const sheetNames = { pessimistic: 'Пессимист', base: 'Реалист', optimistic: 'Оптимист' };
+  const firstH = 1;
+
+  S(1, 0, `Due Diligence — Финансовая модель`);
+  S(2, 0, `${d.company || project.name} · ${d.forecastYears?.length||0} лет прогноза · ${new Date().toLocaleDateString('ru-RU')}`);
+  S(3, 0, '');
+  S(4, 0, '── СВОДНАЯ ТАБЛИЦА СЦЕНАРИЕВ ──');
+  S(4, 0, 'Показатель');
+  validKeys.forEach((k, i) => S(4, firstH+i, `${sheetNames[k]} (${d.scenarios[k].probability}%)`));
+
+  const metricRows = [
+    ['Вероятность, %', k => d.scenarios[k].probability],
+    ['WACC, %', k => d.scenarios[k].wacc],
+    ['Терм. рост g, %', k => d.scenarios[k].terminalGrowth],
+    ['CAGR выручки (прогноз), %', k => { const g=d.scenarios[k].revenueGrowth||[]; return g.length ? _fmR(g.reduce((a,b)=>a+b,0)/g.length) : '—'; }],
+    ['EBITDA margin (ср.), %', k => { const m=d.scenarios[k].ebitdaMargin||[]; return m.length ? _fmR(m.reduce((a,b)=>a+b,0)/m.length) : '—'; }],
+    ['', () => ''],
+    ['Equity Value, ' + (d.currencyUnit||'млн'), k => Math.round(_fmComputeEquityValue(d, k))],
+    ['EV (до вычета долга), ' + (d.currencyUnit||'млн'), k => Math.round(_fmComputeEquityValue(d,k) + (d.historical?.debt||0) - (d.historical?.cash||0))],
+  ];
+
+  metricRows.forEach((row, i) => {
+    const r = 5 + i;
+    S(r, 0, row[0]);
+    validKeys.forEach((k, ci) => { const v = row[1](k); if (v !== null && v !== undefined) S(r, firstH+ci, v); });
+  });
+
+  const wRow = 14;
+  S(wRow, 0, '');
+  S(wRow+1, 0, '── ВЗВЕШЕННАЯ ОЦЕНКА ──');
+  S(wRow+2, 0, 'Вероятностно-взвешенная Equity Value');
+  const evVals = validKeys.map(k => Math.round(_fmComputeEquityValue(d, k)));
+  const probs = validKeys.map(k => (d.scenarios[k].probability||0)/100);
+  const weightedEV = evVals.reduce((sum, ev, i) => sum + ev*probs[i], 0);
+  S(wRow+2, firstH, Math.round(weightedEV));
+
+  const sellerPrice = parseFloat(project.sellerPrice) || 0;
+  if (sellerPrice) {
+    S(wRow+3, 0, 'Цена продавца');
+    S(wRow+3, firstH, sellerPrice);
+    S(wRow+4, 0, 'Дисконт / Премия к цене продавца, %');
+    S(wRow+4, firstH, _fmR((weightedEV - sellerPrice)/sellerPrice*100));
+    S(wRow+5, 0, weightedEV >= sellerPrice ? '✅ СДЕЛКА ПРИВЛЕКАТЕЛЬНА — взвешенная стоимость выше цены' : '⚠️ ПЕРЕСМОТР ЦЕНЫ — взвешенная стоимость ниже цены продавца');
+  }
+
+  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:wRow+6, c:validKeys.length+1}});
+  ws['!cols'] = [{wch:40}, ...validKeys.map(() => ({wch:20}))];
+  return ws;
+}
+
+function _fmBuildAssumptionsSheet(d) {
+  const keys = ['pessimistic','base','optimistic'];
+  const valid = keys.filter(k => d.scenarios?.[k]);
+  const ws = {};
+  const S = (r, c, v) => _fmCell(ws, r, c, v, false);
+
+  S(1, 0, 'ДОПУЩЕНИЯ И ОБОСНОВАНИЯ');
+  S(2, 0, `Компания: ${d.company||''}  ·  Горизонт: ${(d.forecastYears||[]).length} лет  ·  Валюта: ${d.currencyUnit||'млн'} ${d.currency||''}`);
+  S(3, 0, '');
+
+  const sectionNames = { pessimistic:'🔴 Пессимист', base:'🟡 Реалист', optimistic:'🟢 Оптимист' };
+  const assumptions = { revenue:'Выручка', margin:'Маржинальность', capex:'CAPEX', wacc:'WACC / Ставка дисконтирования', probability:'Вероятность сценария' };
+
+  let row = 4;
+  valid.forEach(k => {
+    const sc = d.scenarios[k];
+    S(row, 0, `${sectionNames[k]}  (P=${sc.probability}%)`); row++;
+    S(row, 0, 'Параметр'); S(row, 1, 'Значение'); S(row, 2, 'Обоснование (из заключений DD)'); row++;
+    S(row, 0, 'WACC, %'); S(row, 1, sc.wacc); S(row, 2, sc.assumptions?.wacc||''); row++;
+    S(row, 0, 'Terminal Growth, %'); S(row, 1, sc.terminalGrowth); S(row, 2, ''); row++;
+    S(row, 0, 'CAGR выручки (ср.), %');
+    const g = sc.revenueGrowth||[];
+    S(row, 1, g.length ? _fmR(g.reduce((a,b)=>a+b,0)/g.length) : '');
+    S(row, 2, sc.assumptions?.revenue||''); row++;
+    S(row, 0, 'EBITDA margin (ср.), %');
+    const m = sc.ebitdaMargin||[];
+    S(row, 1, m.length ? _fmR(m.reduce((a,b)=>a+b,0)/m.length) : '');
+    S(row, 2, sc.assumptions?.margin||''); row++;
+    S(row, 0, 'CAPEX / Выручка (ср.), %');
+    const cp = sc.capexPct||[];
+    S(row, 1, cp.length ? _fmR(cp.reduce((a,b)=>a+b,0)/cp.length) : '');
+    S(row, 2, sc.assumptions?.capex||''); row++;
+    S(row, 0, 'Вероятность сценария'); S(row, 1, sc.probability+'%'); S(row, 2, sc.assumptions?.probability||''); row++;
+    S(row, 0, ''); row++;
+  });
+
+  // Historical data section
+  S(row, 0, '── ИСТОРИЧЕСКИЕ ДАННЫЕ (факт) ──'); row++;
+  S(row, 0, 'Показатель');
+  (d.historicalYears||[]).forEach((y, i) => S(row, 1+i, y));
+  row++;
+  const histRows = [
+    ['Выручка', d.historical?.revenue],
+    ['Gross Margin, %', d.historical?.grossMargin],
+    ['EBITDA', d.historical?.ebitda],
+    ['EBITDA margin, %', d.historical?.ebitdaMargin],
+    ['Чистая прибыль', d.historical?.netIncome],
+    ['CAPEX', d.historical?.capex],
+    ['FCF', d.historical?.fcf],
+    ['Долг (net)', [d.historical?.debt]],
+  ];
+  histRows.forEach(([label, vals]) => {
+    S(row, 0, label);
+    (vals||[]).forEach((v, i) => { if (v!==undefined && v!==null) S(row, 1+i, v); });
+    row++;
+  });
+
+  ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:row+1, c:5}});
+  ws['!cols'] = [{wch:35}, {wch:18}, {wch:60}];
+  return ws;
+}
+
+function _fmBuildMetricsSheet(d, project) {
+  const keys = ['pessimistic','base','optimistic'];
+  const valid = keys.filter(k => d.scenarios?.[k]);
+  const ws = {};
+  const S = (r, c, v) => _fmCell(ws, r, c, v, false);
+  const F = (d.forecastYears||[]).length;
+
+  S(1, 0, 'ИНВЕСТИЦИОННЫЕ МЕТРИКИ И ЧУВСТВИТЕЛЬНОСТЬ');
+  S(2, 0, `${d.company||project.name}  ·  Горизонт: ${F} лет`);
+  S(3, 0, '');
+
+  // Metrics table
+  S(4, 0, 'Показатель');
+  valid.forEach((k, i) => S(4, 1+i, `${d.scenarios[k].name} (${d.scenarios[k].probability}%)`));
+  S(4, 1+valid.length, 'Взвешенная');
+
+  const evVals = valid.map(k => _fmComputeEquityValue(d, k));
+  const entVals = evVals.map((ev, i) => ev + (d.historical?.debt||0) - (d.historical?.cash||0));
+  const probs = valid.map(k => (d.scenarios[k].probability||0)/100);
+  const weightedEV = evVals.reduce((sum, v, i) => sum + v*probs[i], 0);
+  const weightedEnt = entVals.reduce((sum, v, i) => sum + v*probs[i], 0);
+
+  const rows5 = [
+    ['Equity Value, ' + (d.currencyUnit||'млн'), evVals.map(v => Math.round(v)), Math.round(weightedEV)],
+    ['Enterprise Value, ' + (d.currencyUnit||'млн'), entVals.map(v => Math.round(v)), Math.round(weightedEnt)],
+  ];
+  // EV/EBITDA: EV / last historical EBITDA
+  const lastEbitda = (d.historical?.ebitda||[])[( d.historical?.ebitda?.length||1)-1] || 1;
+  rows5.push(['EV/EBITDA (текущий год), x', entVals.map(v => _fmR(v/lastEbitda)), _fmR(weightedEnt/lastEbitda)]);
+
+  const sellerPrice = parseFloat(project.sellerPrice) || null;
+  if (sellerPrice) {
+    rows5.push(['IRR (от цены продавца), %', evVals.map(ev => _fmR((Math.pow(ev/sellerPrice, 1/F)-1)*100)), _fmR((Math.pow(weightedEV/sellerPrice, 1/F)-1)*100)]);
+    rows5.push(['NPV (от цены продавца), ' + (d.currencyUnit||'млн'), evVals.map(ev => Math.round(ev - sellerPrice)), Math.round(weightedEV - sellerPrice)]);
+    rows5.push(['Дисконт / Премия к цене, %', evVals.map(ev => _fmR((ev-sellerPrice)/sellerPrice*100)), _fmR((weightedEV-sellerPrice)/sellerPrice*100)]);
+  }
+
+  rows5.forEach((row, i) => {
+    const r = 5 + i;
+    S(r, 0, row[0]);
+    row[1].forEach((v, ci) => S(r, 1+ci, v));
+    S(r, 1+valid.length, row[2]);
+  });
+
+  // Sensitivity: WACC x Terminal Growth → Equity Value (base scenario)
+  const baseSc = d.scenarios?.base;
+  if (baseSc) {
+    const sensRow = 5 + rows5.length + 2;
+    S(sensRow, 0, '── ЧУВСТВИТЕЛЬНОСТЬ Equity Value (базовый сценарий) ──');
+    S(sensRow+1, 0, 'WACC \\ g');
+    const waccRange = [9, 10, 11, 12, 13, 14, 15];
+    const tgRange = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5];
+    waccRange.forEach((w, ci) => S(sensRow+1, 1+ci, w+'%'));
+    tgRange.forEach((tg, ri) => {
+      S(sensRow+2+ri, 0, tg+'%');
+      waccRange.forEach((wacc, ci) => {
+        const modSc = {...baseSc, wacc, terminalGrowth: tg};
+        const modD = {...d, scenarios: {...d.scenarios, base: modSc}};
+        S(sensRow+2+ri, 1+ci, Math.round(_fmComputeEquityValue(modD, 'base')));
+      });
+    });
+    ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:sensRow+2+tgRange.length, c:1+waccRange.length}});
+  } else {
+    ws['!ref'] = XLSX.utils.encode_range({s:{r:0,c:0}, e:{r:5+rows5.length+2, c:valid.length+2}});
+  }
+  ws['!cols'] = [{wch:40}, ...Array(8).fill({wch:16})];
+  return ws;
+}
+
+function exportFinModelXlsx(projectId, modelIdx) {
+  const project = state.projects.find(p => p.id === projectId);
+  if (!project) return;
+  const model = project.finModels?.[modelIdx ?? 0];
+  if (!model) { showToast('Нет данных финмодели', 'error'); return; }
+  const d = model.data;
+
+  try {
+    if (typeof XLSX === 'undefined') { showToast('SheetJS не загружен', 'error'); return; }
+    const wb = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(wb, _fmBuildSummarySheet(d, project), 'Сводка');
+    XLSX.utils.book_append_sheet(wb, _fmBuildAssumptionsSheet(d), 'Допущения');
+
+    const scMap = { pessimistic:'Пессимист', base:'Реалист', optimistic:'Оптимист' };
+    ['pessimistic','base','optimistic'].forEach(sk => {
+      if (d.scenarios?.[sk]) {
+        const ws = _fmBuildScenarioSheet(d, sk);
+        if (ws) XLSX.utils.book_append_sheet(wb, ws, scMap[sk]);
+      }
+    });
+
+    XLSX.utils.book_append_sheet(wb, _fmBuildMetricsSheet(d, project), 'Метрики');
+
+    const fname = `DD_FinModel_${(project.name||'').replace(/[^a-zа-яё0-9]/gi,'_').slice(0,30)}_${new Date().toISOString().slice(0,10)}.xlsx`;
+    XLSX.writeFile(wb, fname);
+    showToast('✅ Excel скачан: ' + fname, 'success', 5000);
+  } catch(e) {
+    showToast('Ошибка генерации Excel: ' + e.message, 'error', 8000);
+    console.error('Excel error:', e);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
