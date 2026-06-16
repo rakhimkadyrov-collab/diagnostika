@@ -960,8 +960,19 @@ async function testClaudeKey() {
       body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 10, messages: [{ role: 'user', content: 'Hi' }] })
     });
     if (res.ok) showToast('✅ Claude API ключ работает!', 'success');
-    else { const e = await res.json(); showToast('❌ Ошибка: ' + (e.error?.message||'Неверный ключ'), 'error', 5000); }
-  } catch (e) { showToast('❌ Ошибка подключения — откройте через HTTPS', 'error', 5000); }
+    else {
+      let msg = 'Неверный ключ';
+      try { const e = await res.json(); msg = e.error?.message || msg; } catch(_) {}
+      showToast('❌ ' + msg, 'error', 7000);
+    }
+  } catch (e) {
+    const msg = e?.message || String(e);
+    if (location.protocol === 'file:') {
+      showToast('❌ Откройте через HTTPS (не file://). Используйте GitHub Pages или Netlify.', 'error', 7000);
+    } else {
+      showToast('❌ Ошибка сети: ' + msg, 'error', 7000);
+    }
+  }
 }
 
 async function testNotionToken() {
