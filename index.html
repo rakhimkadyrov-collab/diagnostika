@@ -399,6 +399,7 @@ let state = {
   newProject: { step: 1, data: {}, files: [] },
   runningAgent: null,
   editingTask: false,
+  reportAgentFilter: null,
   settings: { claudeKey: '', notionToken: '', claudeModel: 'claude-sonnet-4-6' },
   sessionUsage: { inputTokens: 0, outputTokens: 0, cost: 0 }
 };
@@ -528,7 +529,7 @@ async function callClaude(systemPrompt, userContent) {
   if (!key) throw new Error('API ключ не настроен. Перейдите в ⚙️ Настройки.');
   const body = JSON.stringify({
     model: state.settings.claudeModel || 'claude-sonnet-4-6',
-    max_tokens: 4000,
+    max_tokens: 8000,
     system: systemPrompt,
     messages: [{ role: 'user', content: userContent }],
     tools: [{ type: 'web_search_20250305', name: 'web_search' }]
@@ -809,6 +810,159 @@ function downloadTxt(project) {
   const a = document.createElement('a');
   a.href = url; a.download = `DD_${project.name}_${new Date().toISOString().slice(0,10)}.txt`;
   a.click(); URL.revokeObjectURL(url);
+}
+
+// ── BIG4 REPORT ──
+
+function big4Css() {
+  return `<style>
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Times New Roman',Times,serif;font-size:11.5pt;color:#1A1A2E;background:#fff;}
+
+  /* ─ Cover ─ */
+  .cover{min-height:100vh;display:flex;flex-direction:column;page-break-after:always;}
+  .c-top{background:#0A2855;color:#fff;padding:28px 48px;}
+  .c-brand{font-family:Arial,sans-serif;font-size:20pt;font-weight:900;letter-spacing:-.5px;}
+  .c-sub{font-family:Arial,sans-serif;font-size:8pt;color:#7fafd4;letter-spacing:2.5px;text-transform:uppercase;margin-top:3px;}
+  .c-confid{background:#FEF3C7;border-top:1px solid #D97706;border-bottom:1px solid #D97706;padding:7px 48px;font-family:Arial,sans-serif;font-size:8pt;font-weight:700;color:#92400E;letter-spacing:2px;text-align:center;}
+  .c-body{flex:1;padding:52px 48px;}
+  .c-label{font-family:Arial,sans-serif;font-size:8pt;font-weight:700;color:#C8952A;letter-spacing:3px;text-transform:uppercase;margin-bottom:14px;}
+  .c-title{font-size:26pt;font-weight:700;color:#0A2855;line-height:1.15;margin-bottom:6px;}
+  .c-client{font-size:13pt;color:#475569;margin-bottom:22px;}
+  .c-rule{width:72px;height:3.5px;background:#C8952A;margin-bottom:30px;}
+  .c-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 40px;}
+  .c-cell{border-left:2.5px solid #0A2855;padding:6px 0 6px 12px;}
+  .c-clabel{font-family:Arial,sans-serif;font-size:7.5pt;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;}
+  .c-cval{font-family:Arial,sans-serif;font-size:11pt;font-weight:600;color:#1E293B;margin-top:2px;}
+  .c-foot{background:#0A2855;color:#7fafd4;padding:12px 48px;font-family:Arial,sans-serif;font-size:8pt;line-height:1.5;}
+
+  /* ─ TOC ─ */
+  .toc{page-break-after:always;padding:40px 48px;}
+  .toc-h{font-family:Arial,sans-serif;font-size:16pt;font-weight:700;color:#0A2855;border-bottom:2px solid #0A2855;padding-bottom:10px;margin-bottom:20px;}
+  .toc-row{display:flex;align-items:baseline;padding:7px 0;border-bottom:1px dotted #D5DDE8;font-size:11pt;}
+  .toc-ico{width:28px;flex-shrink:0;}
+  .toc-nm{flex:1;}
+
+  /* ─ Agent section ─ */
+  .ag-sec{page-break-before:always;}
+  .ag-hd{background:#0A2855;color:#fff;padding:14px 22px;display:flex;align-items:flex-start;gap:14px;}
+  .ag-ico{font-size:18pt;padding-top:2px;}
+  .ag-name{font-family:Arial,sans-serif;font-size:14pt;font-weight:700;}
+  .ag-role{font-family:Arial,sans-serif;font-size:8.5pt;color:#93c5fd;margin-top:2px;}
+  .ag-ts{font-family:Arial,sans-serif;font-size:7.5pt;color:#64a7d6;margin-top:2px;}
+  .ag-body{padding:22px 26px;border:1px solid #D5DDE8;border-top:none;}
+
+  /* ─ CEO ─ */
+  .ceo-sec{page-break-before:always;}
+  .ceo-hd{background:linear-gradient(90deg,#7B4500 0%,#B5690A 100%);color:#fff;padding:16px 22px;}
+  .ceo-ey{font-family:Arial,sans-serif;font-size:8pt;font-weight:700;letter-spacing:3px;text-transform:uppercase;color:#FFD87A;}
+  .ceo-ti{font-family:Arial,sans-serif;font-size:15pt;font-weight:700;margin-top:4px;}
+  .ceo-body{background:#FFFDF5;padding:24px 26px;border:2px solid #C8952A;border-top:none;}
+
+  /* ─ Markdown ─ */
+  h2{font-family:Arial,sans-serif;font-size:11.5pt;font-weight:700;color:#0A2855;margin:18px 0 8px;padding-bottom:5px;border-bottom:1px solid #D5DDE8;}
+  h3{font-family:Arial,sans-serif;font-size:10.5pt;font-weight:700;color:#334155;margin:13px 0 5px;}
+  p,br+br{line-height:1.75;margin:6px 0;}
+  ul{margin:6px 0 10px 22px;}
+  li{line-height:1.65;margin:3px 0;}
+  strong{color:#1E293B;font-weight:700;}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-family:Arial,sans-serif;font-size:9.5pt;}
+  table tr:first-child td{background:#0A2855;color:#fff;font-weight:600;padding:7px 10px;}
+  table tr:not(:first-child) td{border:1px solid #D5DDE8;padding:6px 10px;}
+  table tr:nth-child(even):not(:first-child) td{background:#F8FAFC;}
+
+  @media print{
+    @page{margin:18mm 22mm 22mm;size:A4;}
+    .ag-sec,.ceo-sec{page-break-before:always;}
+  }
+  </style>`;
+}
+
+function generateBig4Html(project, singleAgentId) {
+  const date = new Date().toLocaleDateString('ru-RU', {year:'numeric',month:'long',day:'numeric'});
+  const agentLabel = singleAgentId ? ' · ' + (AGENTS.find(a => a.id === singleAgentId)?.name || '') : '';
+  const printAgents = singleAgentId
+    ? AGENTS.filter(a => a.id === singleAgentId && project.conclusions?.[a.id]?.text)
+    : AGENTS.filter(a => a.id !== 'ceo' && project.conclusions?.[a.id]?.text);
+  const hasCeo = !singleAgentId || singleAgentId === 'ceo';
+  const ceoData = project.conclusions?.ceo;
+
+  // ── Cover ──
+  let h = `<!DOCTYPE html><html lang="ru"><head><meta charset="UTF-8">
+  <title>DD — ${escHtml(project.name)}${agentLabel}</title>${big4Css()}</head><body>
+  <div class="cover">
+    <div class="c-top"><div class="c-brand">⚖️ DD Офис</div><div class="c-sub">Due Diligence · Профессиональный анализ</div></div>
+    <div class="c-confid">КОНФИДЕНЦИАЛЬНО — ТОЛЬКО ДЛЯ АДРЕСАТА</div>
+    <div class="c-body">
+      <div class="c-label">Due Diligence${escHtml(agentLabel)}</div>
+      <div class="c-title">${escHtml(project.name)}</div>
+      ${project.client ? `<div class="c-client">${escHtml(project.client)}</div>` : ''}
+      <div class="c-rule"></div>
+      <div class="c-grid">
+        <div class="c-cell"><div class="c-clabel">Тип сделки</div><div class="c-cval">${escHtml(project.dealType||'—')}</div></div>
+        <div class="c-cell"><div class="c-clabel">Отрасль</div><div class="c-cval">${escHtml(project.industry||'—')}</div></div>
+        <div class="c-cell"><div class="c-clabel">Глубина анализа</div><div class="c-cval">${escHtml(project.depth||'—')}</div></div>
+        <div class="c-cell"><div class="c-clabel">Дата отчёта</div><div class="c-cval">${date}</div></div>
+        ${project.sellerPrice ? `<div class="c-cell"><div class="c-clabel">Цена продавца</div><div class="c-cval">$${escHtml(project.sellerPrice)} млн</div></div>` : ''}
+        ${project.targetPrice ? `<div class="c-cell"><div class="c-clabel">Целевая цена</div><div class="c-cval">$${escHtml(project.targetPrice)} млн</div></div>` : ''}
+        ${project.isGroup && project.companies?.length ? `<div class="c-cell" style="grid-column:1/-1"><div class="c-clabel">Структура</div><div class="c-cval">Группа ${project.companies.length} юр. лиц: ${project.companies.map(c=>escHtml(c.name)).join(', ')}</div></div>` : ''}
+      </div>
+    </div>
+    <div class="c-foot">Настоящий отчёт подготовлен DD Офисом на основе предоставленных материалов и является конфиденциальным. Несанкционированное распространение или использование запрещено. DD Офис не несёт ответственности за решения, принятые на основании данного отчёта без дополнительной независимой проверки.</div>
+  </div>`;
+
+  // ── TOC (только для полного отчёта) ──
+  if (!singleAgentId) {
+    h += `<div class="toc"><div class="toc-h">Содержание</div>
+    ${printAgents.map(a => `<div class="toc-row"><span class="toc-ico">${a.icon}</span><span class="toc-nm">${a.name} — ${a.short}</span></div>`).join('')}
+    ${hasCeo && ceoData?.text ? `<div class="toc-row"><span class="toc-ico">👔</span><span class="toc-nm"><strong>CEO — Итоговый вердикт</strong></span></div>` : ''}
+    </div>`;
+  }
+
+  // ── Agent sections ──
+  printAgents.forEach(agent => {
+    const c = project.conclusions[agent.id];
+    const ts = c.timestamp ? new Date(c.timestamp).toLocaleString('ru-RU') : date;
+    h += `<div class="ag-sec">
+      <div class="ag-hd"><div class="ag-ico">${agent.icon}</div><div><div class="ag-name">${agent.name}</div><div class="ag-role">${agent.short}</div><div class="ag-ts">Заключение: ${ts}</div></div></div>
+      <div class="ag-body">${renderMarkdown(c.text)}</div>
+    </div>`;
+  });
+
+  // ── CEO ──
+  if (hasCeo && ceoData?.text) {
+    const ts = ceoData.timestamp ? new Date(ceoData.timestamp).toLocaleString('ru-RU') : date;
+    h += `<div class="ceo-sec">
+      <div class="ceo-hd"><div class="ceo-ey">Итоговое заключение</div><div class="ceo-ti">👔 Вердикт CEO</div></div>
+      <div class="ceo-body">${renderMarkdown(ceoData.text)}</div>
+    </div>`;
+  }
+
+  h += `</body></html>`;
+  return h;
+}
+
+function printBig4Report(project, agentId) {
+  const html = generateBig4Html(project, agentId || null);
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  setTimeout(() => w.print(), 800);
+}
+
+function exportWordDoc(project, agentId) {
+  const inner = generateBig4Html(project, agentId || null);
+  const wordHtml = inner
+    .replace('<!DOCTYPE html>', '')
+    .replace('<html lang="ru">', '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">');
+  const blob = new Blob(['﻿' + wordHtml], { type: 'application/msword;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const suffix = agentId ? '_' + (AGENTS.find(x => x.id === agentId)?.name || agentId) : '';
+  a.href = url;
+  a.download = `DD_${project.name}${suffix}_${new Date().toISOString().slice(0,10)}.doc`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function escHtml(str) {
@@ -1333,33 +1487,61 @@ function renderReportTab(project) {
       <button onclick="switchTab('agents')" class="btn-primary">Перейти к агентам</button>
     </div>`;
   }
-  return `<div class="mb-5 flex gap-3 flex-wrap no-print">
-    <button onclick="printReport(getProject())" class="btn-primary">🖨 Распечатать / PDF</button>
-    <button onclick="downloadTxt(getProject())" class="btn-secondary">⬇ Скачать .txt</button>
-    <button onclick="handleSaveToNotion()" class="btn-secondary" id="notion-save-btn">💾 Сохранить в Notion</button>
-  </div>
-  <div class="space-y-4">
-    ${AGENTS.filter(a => a.id !== 'ceo').map(agent => {
-      const c = project.conclusions?.[agent.id];
-      if (!c?.text) return '';
-      return `<div class="card overflow-hidden">
+  const sel = state.reportAgentFilter;
+  const isAll = !sel;
+  const agentForExport = sel || null;
+
+  // Agent selector pills
+  const pills = `<div class="flex flex-wrap gap-1.5 mb-5 no-print">
+    <button onclick="setReportAgent(null)" class="text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${isAll ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">Все агенты</button>
+    ${AGENTS.filter(a => project.conclusions?.[a.id]?.text).map(a => {
+      const active = sel === a.id;
+      const isCeo = a.id === 'ceo';
+      return `<button onclick="setReportAgent('${a.id}')" class="text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${active ? (isCeo ? 'bg-yellow-600 text-white' : 'bg-blue-600 text-white') : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}">${a.icon} ${a.name}</button>`;
+    }).join('')}
+  </div>`;
+
+  // Action buttons
+  const actions = `<div class="mb-5 flex gap-2 flex-wrap no-print">
+    <button onclick="printBig4Report(getProject(),'${agentForExport||''}')" class="btn-primary text-sm">🖨 PDF${sel ? ' (раздел)' : ' (полный)'}</button>
+    <button onclick="exportWordDoc(getProject(),'${agentForExport||''}')" class="btn-secondary text-sm">📄 Word${sel ? ' (раздел)' : ''}</button>
+    <button onclick="downloadTxt(getProject())" class="btn-secondary text-sm">⬇ .txt</button>
+    <button onclick="handleSaveToNotion()" class="btn-secondary text-sm" id="notion-save-btn">💾 Notion</button>
+  </div>`;
+
+  // Content
+  let content = '';
+  if (isAll || sel !== 'ceo') {
+    const agentsToShow = isAll
+      ? AGENTS.filter(a => a.id !== 'ceo' && project.conclusions?.[a.id]?.text)
+      : AGENTS.filter(a => a.id === sel && project.conclusions?.[a.id]?.text);
+    content += agentsToShow.map(agent => {
+      const c = project.conclusions[agent.id];
+      return `<div class="card overflow-hidden mb-4">
         <div class="px-4 py-3 flex items-center gap-2 border-b border-slate-700">
           <span class="text-lg">${agent.icon}</span>
           <span class="font-semibold text-white">${agent.name}</span>
+          <span class="text-xs text-slate-500">${agent.short}</span>
           ${c.timestamp ? `<span class="text-xs text-slate-500 ml-auto">${new Date(c.timestamp).toLocaleString('ru-RU')}</span>` : ''}
+          <button onclick="printBig4Report(getProject(),'${agent.id}')" class="btn-ghost text-xs px-2 py-0.5 ml-1 no-print" title="PDF этого раздела">🖨</button>
         </div>
         <div class="p-4 markdown text-sm">${renderMarkdown(c.text)}</div>
       </div>`;
-    }).join('')}
-    ${project.conclusions?.ceo?.text ? `<div class="card overflow-hidden border-yellow-700/50">
-      <div class="px-4 py-3 flex items-center gap-2 border-b border-yellow-700/30" style="background:rgba(146,64,14,0.15)">
+    }).join('');
+  }
+  if ((isAll || sel === 'ceo') && project.conclusions?.ceo?.text) {
+    const ceo = project.conclusions.ceo;
+    content += `<div class="card overflow-hidden border-yellow-700/50">
+      <div class="px-4 py-3 flex items-center gap-2 border-b border-yellow-700/30 no-print" style="background:rgba(146,64,14,0.15)">
         <span class="text-lg">👔</span>
         <span class="font-bold text-yellow-300">ВЕРДИКТ CEO</span>
-        ${project.conclusions.ceo.timestamp ? `<span class="text-xs text-slate-500 ml-auto">${new Date(project.conclusions.ceo.timestamp).toLocaleString('ru-RU')}</span>` : ''}
+        ${ceo.timestamp ? `<span class="text-xs text-slate-500 ml-auto">${new Date(ceo.timestamp).toLocaleString('ru-RU')}</span>` : ''}
+        <button onclick="printBig4Report(getProject(),'ceo')" class="btn-ghost text-xs px-2 py-0.5 ml-1 no-print" title="PDF вердикта CEO">🖨</button>
       </div>
-      <div class="p-4 markdown text-sm">${renderMarkdown(project.conclusions.ceo.text)}</div>
-    </div>` : ''}
-  </div>`;
+      <div class="p-4 markdown text-sm">${renderMarkdown(ceo.text)}</div>
+    </div>`;
+  }
+  return pills + actions + `<div class="space-y-0">${content}</div>`;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -1525,6 +1707,12 @@ function createProject() {
 
 function switchTab(tab) {
   state.currentTab = tab;
+  if (tab !== 'report') state.reportAgentFilter = null;
+  render();
+}
+
+function setReportAgent(agentId) {
+  state.reportAgentFilter = agentId;
   render();
 }
 
