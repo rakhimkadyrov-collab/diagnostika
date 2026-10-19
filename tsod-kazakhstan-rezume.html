@@ -1,0 +1,559 @@
+<title>ЦОД Казахстана за 3 минуты</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Макет: один вертикальный брифинг с липкой шкалой разделов слева на широком экране; данные набраны моношрифтом, как в инженерной записке */
+:root{
+  --ink:#0d1b2a; --ink-2:#44586e; --ink-3:#7c8da1;
+  --paper:#f7f8fa; --card:#ffffff; --line:#dfe4ea;
+  --accent:#a8600c; --accent-soft:#f6ecdd;
+  --pass:#0f6b4f; --fail:#a32b17; --warn:#8a6a10;
+  --grid:#e7eaef;
+  --f-disp:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --ink:#e8edf3; --ink-2:#a8b6c6; --ink-3:#7a8798;
+  --paper:#0b1118; --card:#121b25; --line:#243141;
+  --accent:#e0a259; --accent-soft:#2a2016;
+  --pass:#4fc39b; --fail:#ef7f6a; --warn:#d9b457;
+  --grid:#1e2936; color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --ink:#e8edf3; --ink-2:#a8b6c6; --ink-3:#7a8798;
+  --paper:#0b1118; --card:#121b25; --line:#243141;
+  --accent:#e0a259; --accent-soft:#2a2016;
+  --pass:#4fc39b; --fail:#ef7f6a; --warn:#d9b457;
+  --grid:#1e2936; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:0 56px;-webkit-font-smoothing:antialiased}
+.wrap{max-width:980px;margin:0 auto}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+h1,h2,h3{font-family:var(--f-disp);text-wrap:balance;margin:0}
+h1{font-size:clamp(28px,5.4vw,46px);line-height:1.08;letter-spacing:-.01em;font-weight:700}
+h2{font-size:clamp(21px,3.2vw,28px);line-height:1.15;font-weight:700}
+h3{font-size:17px;font-weight:600;line-height:1.25}
+p{margin:0}
+.eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);font-weight:600;font-family:var(--f-body)}
+
+/* шапка */
+header{padding-block:34px 24px;border-bottom:2px solid var(--ink)}
+.dek{margin-top:14px;font-size:clamp(16px,2.2vw,19px);color:var(--ink-2);max-width:62ch}
+.meta{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:18px;font-size:12px;color:var(--ink-3)}
+.meta span{display:flex;gap:6px}
+.meta b{font-family:var(--f-mono);font-weight:500;color:var(--ink-2)}
+
+/* тезис */
+.thesis{margin-top:26px;border-left:3px solid var(--accent);background:var(--accent-soft);padding:18px 20px;border-radius:0 6px 6px 0}
+.thesis p{font-size:16px}
+.thesis strong{font-weight:600}
+
+/* kpi */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);margin-top:26px;border-radius:6px;overflow:hidden}
+.kpi{background:var(--card);padding:16px 14px;min-width:0}
+.kpi .v{font-family:var(--f-mono);font-size:clamp(22px,3.4vw,30px);font-weight:500;letter-spacing:-.02em;line-height:1}
+.kpi .u{font-size:12px;color:var(--ink-3);margin-top:2px}
+.kpi .l{font-size:12.5px;color:var(--ink-2);margin-top:8px;line-height:1.35}
+@media(max-width:700px){.kpis{grid-template-columns:repeat(2,1fr)}}
+
+/* разделы */
+section{padding-block:40px 0}
+.sechead{display:flex;align-items:baseline;gap:12px;border-top:1px solid var(--line);padding-top:14px}
+.secnum{font-family:var(--f-mono);font-size:12px;color:var(--accent);font-weight:500;flex:none;padding-top:5px}
+.lede{margin-top:12px;color:var(--ink-2);max-width:66ch}
+
+/* общие карточки */
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+button{font:inherit;color:inherit;cursor:pointer}
+.pill{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;transition:.15s;min-width:0}
+.pill:hover{border-color:var(--ink-3)}
+.pill[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.pill:focus-visible,.seg:focus-visible,.step:focus-visible,.layer:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* три размера */
+.sizes{margin-top:18px;display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+@media(max-width:760px){.sizes{grid-template-columns:1fr}}
+.sizebars{display:flex;flex-direction:column;gap:10px}
+.sizebar{display:grid;grid-template-columns:86px 1fr;gap:10px;align-items:center;background:none;border:0;padding:0;text-align:left;width:100%}
+.sizebar .nm{font-size:12.5px;color:var(--ink-2)}
+.sizebar .tr{height:30px;background:var(--grid);border-radius:3px;position:relative}
+.outlab{position:absolute;top:50%;transform:translateY(-50%);font-family:var(--f-mono);font-size:12px;color:var(--ink-2);white-space:nowrap}
+.sizebar .fl{height:100%;background:var(--ink-3);transition:.25s;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;border-radius:3px}
+.sizebar[aria-pressed="true"] .fl{background:var(--accent)}
+.sizebar[aria-pressed="true"] .nm{color:var(--ink);font-weight:600}
+.sizebar .fl span{font-family:var(--f-mono);font-size:12px;color:#fff;white-space:nowrap}
+.sizeinfo{padding:16px 18px}
+.sizeinfo .t{font-family:var(--f-disp);font-size:19px;font-weight:600}
+.sizeinfo .d{margin-top:8px;font-size:14px;color:var(--ink-2)}
+.sizeinfo .s{margin-top:12px;font-size:11.5px;color:var(--ink-3);border-top:1px solid var(--line);padding-top:10px}
+
+/* сегменты */
+.seggrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:18px}
+@media(max-width:760px){.seggrid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:430px){.seggrid{grid-template-columns:1fr}}
+.seg{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:13px;text-align:left;min-width:0;transition:.15s;border-left:3px solid var(--line)}
+.seg:hover{border-color:var(--ink-3)}
+.seg[aria-pressed="true"]{border-color:var(--ink);border-left-color:var(--accent);box-shadow:0 1px 0 var(--line)}
+.seg .n{font-size:13.5px;font-weight:600;line-height:1.25}
+.seg .m{font-family:var(--f-mono);font-size:12px;color:var(--ink-3);margin-top:7px}
+.segdetail{margin-top:10px;padding:20px;display:grid;grid-template-columns:1.1fr 1fr;gap:24px}
+@media(max-width:760px){.segdetail{grid-template-columns:1fr;gap:18px}}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 14px;font-size:13.5px;margin-top:12px}
+.kv dt{color:var(--ink-3)}
+.kv dd{margin:0;font-family:var(--f-mono);font-size:13px}
+.verdict{font-size:14px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);color:var(--ink-2)}
+.meter{margin-top:4px}
+.meter .lab{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.meter .tr{position:relative;height:38px;background:var(--grid);border-radius:4px;margin-top:8px;overflow:hidden}
+.meter .fl{position:absolute;inset:0 auto 0 0;background:var(--fail);transition:.3s}
+.meter .fl.ok{background:var(--pass)}
+.meter .thr{position:absolute;top:0;bottom:0;width:2px;background:var(--ink)}
+.meter .thrlab{position:absolute;font-size:10.5px;font-family:var(--f-mono);color:var(--ink);transform:translateX(-50%);white-space:nowrap}
+.meter .scale{display:flex;justify-content:space-between;font-family:var(--f-mono);font-size:10.5px;color:var(--ink-3);margin-top:4px}
+.badge{display:inline-block;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:4px;margin-top:12px}
+.badge.ok{background:color-mix(in srgb,var(--pass) 14%,transparent);color:var(--pass)}
+.badge.no{background:color-mix(in srgb,var(--fail) 14%,transparent);color:var(--fail)}
+.badge.na{background:var(--grid);color:var(--ink-3)}
+
+/* график */
+.chartbox{margin-top:16px;padding:16px 14px 10px}
+svg.chart{width:100%;height:auto;display:block;touch-action:none}
+.readout{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:14px}
+.readout div{background:var(--card);padding:10px 12px;min-width:0}
+.readout .k{font-size:11px;color:var(--ink-3);letter-spacing:.04em}
+.readout .v{font-family:var(--f-mono);font-size:16px;margin-top:3px}
+@media(max-width:700px){.readout{grid-template-columns:repeat(2,1fr)}}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--ink-2);margin-top:12px}
+.legend i{display:inline-block;width:16px;height:3px;vertical-align:middle;margin-right:6px}
+
+/* разрыв спроса */
+.gap{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+@media(max-width:760px){.gap{grid-template-columns:1fr}}
+.stack{padding:18px}
+.stack .bar{display:flex;height:34px;border-radius:4px;overflow:hidden;margin-top:10px}
+.stack .bar i{display:flex;align-items:center;justify-content:center;font-family:var(--f-mono);font-size:11.5px;color:#fff;white-space:nowrap}
+.stack .cap{font-size:12px;color:var(--ink-3);margin-top:7px}
+
+/* воронка */
+.funnel{margin-top:18px;display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+@media(max-width:760px){.funnel{grid-template-columns:1fr}}
+.steps{display:flex;flex-direction:column;gap:6px}
+.step{display:grid;grid-template-columns:62px 1fr;gap:12px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:10px 12px;text-align:left;transition:.15s}
+.step:hover{border-color:var(--ink-3)}
+.step[aria-pressed="true"]{border-color:var(--ink);background:var(--accent-soft)}
+.step .q{font-family:var(--f-mono);font-size:19px;text-align:right}
+.step .t{font-size:13px;line-height:1.3}
+.step.zero .q{color:var(--fail)}
+.stepinfo{padding:18px}
+.stepinfo .t{font-family:var(--f-disp);font-size:18px;font-weight:600}
+.stepinfo .d{font-size:14px;color:var(--ink-2);margin-top:8px}
+
+/* слой */
+.layers{margin-top:18px;padding:20px}
+.layerrow{display:flex;flex-direction:column;gap:9px;margin-top:14px}
+.layer{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:center;background:none;border:0;padding:0;text-align:left;width:100%}
+.layer .nm{font-size:13px;color:var(--ink-2);line-height:1.25}
+.layer .tr{height:28px;background:var(--grid);border-radius:3px;position:relative}
+.layer .fl{height:100%;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;background:var(--ink-3);transition:.25s;border-radius:3px}
+.layer .fl span{font-family:var(--f-mono);font-size:11.5px;color:#fff;white-space:nowrap}
+.layer.own .fl{background:var(--accent)}
+.layer[aria-pressed="true"] .nm{color:var(--ink);font-weight:600}
+.layernote{margin-top:16px;font-size:14px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:14px}
+
+/* ограничения */
+.limits{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:18px}
+@media(max-width:760px){.limits{grid-template-columns:1fr}}
+.limit{padding:16px}
+.limit .n{font-family:var(--f-mono);font-size:11px;color:var(--accent)}
+.limit h3{margin-top:6px}
+.limit .big{font-family:var(--f-mono);font-size:24px;margin-top:10px}
+.limit p{font-size:13px;color:var(--ink-2);margin-top:6px}
+
+/* выводы */
+.finds{counter-reset:f;margin-top:18px;display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.find{background:var(--card);padding:16px 18px;display:grid;grid-template-columns:28px 1fr;gap:14px}
+.find .n{font-family:var(--f-mono);font-size:13px;color:var(--accent);padding-top:2px}
+.find .t{font-family:var(--f-disp);font-size:16.5px;font-weight:600;line-height:1.25}
+.find .d{font-size:13.5px;color:var(--ink-2);margin-top:5px}
+.more{margin-top:12px}
+
+/* решение */
+.decision{margin-top:18px;border:2px solid var(--ink);border-radius:8px;overflow:hidden;background:var(--card)}
+.decision .hd{background:var(--ink);color:var(--paper);padding:12px 18px;font-family:var(--f-disp);font-weight:600;font-size:16px}
+.dl{padding:6px 18px 18px}
+.di{display:grid;grid-template-columns:auto 1fr;gap:12px;padding-top:14px;font-size:14px}
+.di .mk{font-family:var(--f-mono);font-size:12px;font-weight:500;padding:2px 7px;border-radius:4px;height:fit-content;white-space:nowrap}
+.di .mk.no{background:color-mix(in srgb,var(--fail) 14%,transparent);color:var(--fail)}
+.di .mk.go{background:color-mix(in srgb,var(--pass) 14%,transparent);color:var(--pass)}
+.di .mk.wa{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.di b{font-weight:600}
+.di p{color:var(--ink-2);margin-top:3px;font-size:13.5px}
+
+footer{margin-top:44px;border-top:1px solid var(--line);padding-top:18px;font-size:12.5px;color:var(--ink-3)}
+footer b{color:var(--ink-2);font-weight:600}
+.srcline{font-size:11.5px;color:var(--ink-3);margin-top:12px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">Allosta Partners · секторный отчёт · резюме</p>
+  <h1>Рынок на 24 мегаватта готовится принять 400</h1>
+  <p class="dek">Под словом «ЦОД» в Казахстане живут шесть разных бизнесов. Порог доходности проходит один из них, и это не тот, в который идут деньги.</p>
+  <div class="meta">
+    <span>Данные на <b>17.10.2026</b></span>
+    <span>Полный отчёт: <b>19</b> разделов, <b>72</b> графика, <b>19</b> таблиц</span>
+    <span>Курс <b>452,12 ₸/$</b></span>
+    <span>Базовая ставка НБРК <b>16,25 %</b></span>
+  </div>
+</header>
+
+<div class="thesis">
+  <p>Казахстан заявил <strong>1 367 МВт</strong> новых ЦОД при действующем рынке <strong>23,9 МВт</strong>. Риск-взвешенная оценка пайплайна - <strong>342 МВт</strong>, и три независимых метода сходятся в коридоре 340-350 МВт к 2030 году. Строится экспортный оптовый колокейшн по цене $110-150/кВт/мес, который не проходит порог базовой ставки ни в одном сценарии capex. Внутренний спрос вырастет вчетверо и закроет четверть предложения. Подписанных договоров аренды мощности с иностранными пользователями на дату записки нет ни одного.</p>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="v">23,9</div><div class="u">МВт IT</div><div class="l">вся установленная мощность коммерческих ЦОД страны; загрузка 91 %, свободно 2,2 МВт</div></div>
+  <div class="kpi"><div class="v">1 367</div><div class="u">МВт заявлено</div><div class="l">11 публичных проектов; риск-взвешенно 342 МВт, или 25 % заявленного</div></div>
+  <div class="kpi"><div class="v">8×</div><div class="u">разрыв цены</div><div class="l">$36/кВт/мес в хостинге майнинга против $250-400 в розничном колокейшне</div></div>
+  <div class="kpi"><div class="v">0</div><div class="u">договоров аренды</div><div class="l">27 компаний проинформированы, 1 обязывающий term sheet, ни одного договора на МВт</div></div>
+</div>
+
+<section>
+  <div class="sechead"><div class="secnum">01</div><h2>У этого рынка три разных размера, и все три публикуются как «рынок ЦОД»</h2></div>
+  <p class="lede">Расхождение между публичными оценками 2025 года - 8,7 раза. Это не ошибка статистики, а три разных определения. Нажмите на любую оценку.</p>
+  <div class="sizes">
+    <div class="sizebars" id="sizebars"></div>
+    <div class="card sizeinfo" id="sizeinfo"></div>
+  </div>
+  <p class="lede" style="margin-top:16px">Поэтому в отчёте рынок измеряется мегаваттами, а не тенге: мегаватт одинаков у всех источников, а база выручки - нет. Обеспеченность мощностью в Казахстане - <b class="mono">1,6 Вт</b> на жителя против 8,4 в мире и 85 в США.</p>
+</section>
+
+<section>
+  <div class="sechead"><div class="secnum">02</div><h2>Шесть бизнесов под одним словом</h2></div>
+  <p class="lede">Цена, заказчик, срок контракта и доходность различаются кратно. Инвестиционное решение принимается не по рынку, а по сегменту. Выберите сегмент - под ним доходность на входе против базовой ставки 16,25 %.</p>
+  <div class="seggrid" id="seggrid"></div>
+  <div class="card segdetail" id="segdetail"></div>
+</section>
+
+<section>
+  <div class="sechead"><div class="secnum">03</div><h2>Прогноз до 2036 года</h2></div>
+  <p class="lede">Три траектории мощности: заявленный график ввода, базовый сценарий AP и консервативный. Ведите курсором или пальцем по графику - показатели года под ним.</p>
+  <div class="card chartbox">
+    <svg class="chart" id="chart" viewBox="0 0 960 380" role="img" aria-label="Прогноз установленной ИТ-мощности ЦОД Казахстана, МВт, 2025-2036"></svg>
+    <div class="legend">
+      <span><i style="background:var(--ink-3)"></i>заявлено</span>
+      <span><i style="background:var(--accent)"></i>базовый AP</span>
+      <span><i style="background:var(--ink-2);height:0;border-top:3px dashed var(--ink-2)"></i>консервативный</span>
+    </div>
+  </div>
+  <div class="readout" id="readout"></div>
+  <p class="lede" style="margin-top:16px">Заявленный график физически неисполним: 186 МВт в 2027 году плюс 109 МВт во 2-м квартале 2028 требуют <b class="mono">369 МВт</b> мощности на площадке при PUE 1,25 - против приобретённой подстанции 215 МВт. Дефицит 154 МВт, или 72 % ёмкости подстанции.</p>
+</section>
+
+<section>
+  <div class="sechead"><div class="secnum">04</div><h2>Кто это купит</h2></div>
+  <p class="lede">Внутренний спрос, посчитанный снизу вверх по шести классам заказчиков, растёт с 23,9 МВт до 100 МВт к 2030 году. Базовое предложение на тот же год - 402 МВт.</p>
+  <div class="gap">
+    <div class="card stack">
+      <h3>2030 год: предложение и спрос, МВт IT</h3>
+      <div class="bar"><i style="background:var(--pass);width:24.9%">100</i><i style="background:var(--fail);width:75.1%">302 на экспорт</i></div>
+      <p class="cap">Внутренний спрос закрывает 24,9 % базового предложения. Остальное должно быть продано за пределы Казахстана.</p>
+      <div class="bar" style="margin-top:18px"><i style="background:var(--ink-3);width:3.6%"></i><i style="background:var(--grid);width:96.4%;color:var(--ink-2)">289 МВт без подтверждённого спроса</i></div>
+      <p class="cap">Подтверждённый контрактами внешний спрос на дату записки - около <b class="mono">11 МВт</b>, или 3,6 % требуемого.</p>
+    </div>
+    <div class="card stack">
+      <h3>Восходящая оценка иностранного спроса на 2030 год</h3>
+      <dl class="kv" style="grid-template-columns:1fr auto">
+        <dt>Нейроклауды (Firebird, Nebius и аналоги)</dt><dd>180</dd>
+        <dt>Ближний Восток (G42, ОАЭ)</dt><dd>60</dd>
+        <dt>Китай</dt><dd>45</dd>
+        <dt>Регион Центральной Азии</dt><dd>30</dd>
+        <dt>Россия</dt><dd>25</dd>
+        <dt>Гиперскейлеры (AWS, Google, Microsoft)</dt><dd>10</dd>
+        <dt style="font-weight:600;color:var(--ink)">Итого, центральная оценка</dt><dd style="font-weight:600">350</dd>
+      </dl>
+      <p class="cap" style="margin-top:14px">Нижняя граница 175 МВт, верхняя 660. Центральная оценка (350) расходится с риск-взвешенным пайплайном (342) и базовым сценарием предложения (340) на 3 %. Три независимых метода дают один ответ; заявленные 1 000-1 367 МВт не подтверждает ни один.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sechead"><div class="secnum">05</div><h2>Президентский трек открыл двери, но не принёс ни одного договора</h2></div>
+  <p class="lede">Воронка иностранного интереса по проекту в Экибастузе, янв-окт 2026. Нажмите на любую ступень.</p>
+  <div class="funnel">
+    <div class="steps" id="steps"></div>
+    <div class="card stepinfo" id="stepinfo"></div>
+  </div>
+</section>
+
+<section>
+  <div class="sechead"><div class="secnum">06</div><h2>Казахстан продаёт слой в 14 раз дешевле того, который продаёт владелец чипов</h2></div>
+  <p class="lede">Выручка с одного мегаватта в год. Аренда площадки - это первый слой; вычисления на том же мегаватте продаёт владелец GPU.</p>
+  <div class="card layers">
+    <div class="layerrow" id="layerrow"></div>
+    <p class="layernote" id="layernote"></p>
+  </div>
+</section>
+
+<section>
+  <div class="sechead"><div class="secnum">07</div><h2>Три ограничения, которые решают исход</h2></div>
+  <div class="limits">
+    <div class="card limit">
+      <div class="n">ОГРАНИЧЕНИЕ 1</div><h3>Энергетика</h3>
+      <div class="big">154 МВт</div>
+      <p>дефицит мощности на площадке под заявленный график ввода. Спецтариф 2,5 цента при тарифе Экибастузской ГРЭС-1 9,5 ₸ - это энергия почти по себестоимости генерации; механизм вывода из-под единого закупщика публично не формализован.</p>
+    </div>
+    <div class="card limit">
+      <div class="n">ОГРАНИЧЕНИЕ 2</div><h3>Концентрация</h3>
+      <div class="big">HHI 3 917</div>
+      <p>к 2030 году против 2 728 в 2023-м. Один государственный оператор контролирует 51 % мощности, второй игрок - 34 %. ИИ-бум повышает концентрацию, а не снижает её; места для независимого среднего игрока в оптовом сегменте нет.</p>
+    </div>
+    <div class="card limit">
+      <div class="n">ОГРАНИЧЕНИЕ 3</div><h3>Очередь</h3>
+      <div class="big">1,5 года</div>
+      <p>Армения ввела AI-фабрику в августе 2026 и идёт к 300 МВт к концу 2027-го; Казахстан введёт первые 50 МВт в июне 2027-го. Инвестор один и тот же - Firebird, для которого Казахстан второй рынок.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="sechead"><div class="secnum">08</div><h2>Наши выводы</h2></div>
+  <p class="lede">Пять главных из пятнадцати. Остальные - в полном отчёте, раздел 19.</p>
+  <div class="finds" id="finds"></div>
+  <div class="row more"><button class="pill" id="morebtn" aria-pressed="false">Показать остальные 10 выводов</button></div>
+</section>
+
+<section>
+  <div class="sechead"><div class="secnum">09</div><h2>Проект решения Инвестиционного комитета</h2></div>
+  <div class="decision">
+    <div class="hd">Что мы предлагаем комитету</div>
+    <div class="dl">
+      <div class="di"><span class="mk no">не входить</span><div><b>Экспортный оптовый AI-колокейшн</b> ни как инвестор площадки, ни как соинвестор «Долины ЦОДов».<p>При цене $110-150/кВт/мес доходность на входе 4,2-12,0 % против базовой ставки 16,25 %. Матрица чувствительности не даёт ни одной проходной клетки.</p></div></div>
+      <div class="di"><span class="mk no">не входить</span><div><b>Хостинг цифрового майнинга.</b><p>Доходность 1,4-2,9 %, мощность закреплена прямыми договорами на срок до 10 лет с 1 августа 2026 года.</p></div></div>
+      <div class="di"><span class="mk go">рассматривать</span><div><b>Розничный колокейшн Tier III/IV в Алматы и Астане, 5-15 МВт</b> при четырёх условиях одновременно.<p>Capex не выше $10 млн/МВт; законтрактованный предзаказ не ниже 70 % первой очереди до начала стройки; доходность на входе не ниже 20 % при цене $280/кВт/мес; подтверждённая документом подведённая мощность. Горизонт ввода 2028-2029.</p></div></div>
+      <div class="di"><span class="mk go">отработать</span><div><b>Перераспределение мощности из майнинга в колокейшн</b> и <b>вход в инженерный контур</b> вместо площадки.<p>Один мегаватт даёт в 2,7-6,8 раза больше выручки, а в майнинге занято около 300 МВт. Электротехника - спрос $2,26 млрд на 400 МВт, охлаждение - $1,32 млрд; годовая потребность равна 72-129 % всего годового импорта страны по этим группам, то есть здесь премия за срок поставки, а не конкуренция по цене.</p></div></div>
+      <div class="di"><span class="mk wa">walk-away</span><div><b>Выход более 40 МВт оптовой ёмкости с правом розничной перепродажи</b> в радиусе проекта.<p>40 МВт - это 1,7 размера всего текущего рынка. При таком вводе розничная цена сходится к оптовой, а доходность падает с 22,3 % до 12,5 %, то есть ниже базовой ставки.</p></div></div>
+      <div class="di"><span class="mk wa">правило</span><div><b>Не принимать заявленный интерес за спрос.</b><p>В модель засчитывается только подписанный договор аренды мощности с указанием МВт, срока, цены за киловатт и штрафа за отказ. Таких договоров в публичном контуре нет, поэтому экспортный сегмент идёт с дисконтом на исполнение.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p><b>Полный отчёт</b> - <span class="mono">tsod-kazakhstan-2026-2036.html</span> (19 разделов, 72 графика, 19 таблиц) и PDF-версия на 34 страницах A3. Это резюме не заменяет раздел 18 «Реестр расхождений»: там зафиксировано, какие публичные числа между собой не сходятся и почему.</p>
+  <p class="srcline">Источники: iKS-Consulting, IDC / Apple Hills Digital, Бюро национальной статистики РК, Statista, НБРК, Минэнерго РК, МИИЦР РК, АО «Казахтелеком», раскрытия Nebius, публичные сообщения Акорды и KAZAKH INVEST. Все производные показатели - расчёт AP. Статус каждой цифры указан в полном отчёте.</p>
+</footer>
+</div>
+
+<script>
+(function(){
+var $=function(id){return document.getElementById(id)};
+
+/* ---------- 01 три размера ---------- */
+var SIZES=[
+ {k:'iKS',v:25.8,t:'25,8 млрд ₸',ttl:'Коммерческий колокейшн',d:'Только услуги колокейшна коммерческих ЦОД. Самое узкое определение. В публикациях 2026 года это число цитируется как «весь рынок коммерческих ЦОД», хотя по происхождению это прогноз iKS от 2022 года на 2025-й, а не оценка факта.',s:'iKS-Consulting; проверка AP - раздел 18, пункт 3'},
+ {k:'БНС РК',v:119.0,t:'119,0 млрд ₸',ttl:'Все услуги аренды ЦОД по ОКЭД',d:'$263 млн. В 4,6 раза выше оценки iKS, потому что сюда попадает хостинг цифрового майнинга: 43 из 78 субъектов майнинга стоят на чужих площадках, а 16,9 млрд ₸ услуг ЦОД пришлось на Павлодарскую область, где корпоративного спроса такого масштаба нет.',s:'Бюро национальной статистики РК через Energyprom.kz, 2025'},
+ {k:'Statista',v:224.0,t:'224,0 млрд ₸',ttl:'Рынок ЦОД с оборудованием и сетью',d:'$495,5 млн. Считает не услуги, а инфраструктуру: оборудование и сетевой контур. Почти совпадает с оценкой БНС РК по услугам ЦОД и майнинга (229,9 млрд ₸) при полностью разном определении - прямой риск взаимозамены чисел в презентациях.',s:'Statista через Ranking.kz; пересчёт в тенге по курсу 452,12 - расчёт AP'}
+];
+var sb=$('sizebars'),si=$('sizeinfo'),mx=224.0;
+SIZES.forEach(function(s,i){
+  var b=document.createElement('button');
+  b.className='sizebar';b.type='button';b.setAttribute('aria-pressed',i===1?'true':'false');
+  var pc=s.v/mx*100;
+  b.innerHTML='<span class="nm">'+s.k+'</span><span class="tr"><span class="fl" style="width:'+pc.toFixed(1)+'%">'+(pc>24?'<span>'+s.t+'</span>':'')+'</span>'+(pc>24?'':'<span class="outlab" style="left:calc('+pc.toFixed(1)+'% + 8px)">'+s.t+'</span>')+'</span>';
+  b.onclick=function(){pickSize(i)};
+  sb.appendChild(b);
+});
+function pickSize(i){
+  var bs=sb.querySelectorAll('.sizebar');
+  for(var j=0;j<bs.length;j++)bs[j].setAttribute('aria-pressed',j===i?'true':'false');
+  var s=SIZES[i];
+  si.innerHTML='<div class="t">'+s.ttl+'</div><div class="d">'+s.d+'</div><div class="s">'+s.s+'</div>';
+}
+pickSize(1);
+
+/* ---------- 02 сегменты ---------- */
+var SEG=[
+ {n:'Розничный колокейшн',m:'≈14 МВт · $250-400/кВт/мес',price:'250-400 $/кВт/мес',mw:'≈14 МВт IT',rev:'≈35 млрд ₸',cl:'банки, госкомпании, ИТ, телеком',term:'1-3 года',y:22.3,ylab:'22,3 % при цене $280 и capex $10 млн/МВт',ok:1,v:'Единственный сегмент, проходящий порог базовой ставки. Доходность здесь - рента дефицита: свободно 2,2 МВт на всю страну при загрузке 91 %.'},
+ {n:'Оптовый экспортный колокейшн',m:'0 МВт · $110-150/кВт/мес',price:'110-150 $/кВт/мес',mw:'0 МВт (сегмента ещё нет)',rev:'0',cl:'гиперскейлеры, AI-операторы',term:'10-15 лет',y:12.0,ylab:'4,2-12,0 % в зависимости от capex',ok:0,v:'Весь заявленный пайплайн на 1 367 МВт - про этот сегмент. Порог базовой ставки он не проходит ни при одном значении capex. Это главный вывод отчёта.'},
+ {n:'Хостинг цифрового майнинга',m:'≈300 МВт · $36/кВт/мес',price:'≈36 $/кВт/мес',mw:'≈300 МВт IT',rev:'≈58 млрд ₸',cl:'78 субъектов майнинга, 43 из них на чужих площадках',term:'до 10 лет с 2026 г.',y:2.9,ylab:'1,4-2,9 %',ok:0,v:'Крупнейший сегмент по мощности и главный резерв для ИИ: перевод мегаватта в AI-колокейшн увеличивает выручку владельца площадки в 2,7-3,7 раза, в розницу - в 6,8 раза. Мощность закреплена прямыми договорами с 1 августа 2026 года.'},
+ {n:'Государственные ЦОД',m:'6 МВт · не рыночный',price:'не применимо',mw:'6 МВт IT',rev:'не рыночный',cl:'госорганы, 517 госсистем',term:'бессрочно',y:null,ylab:'не применимо',ok:2,v:'Все данные госорганов размещены в одном ЦОД в Астане: четверть рынка в одной точке отказа. Кандидат на аутсорсинг - единственный крупный внутренний заказчик, способный заполнить коммерческую ёмкость.'},
+ {n:'AI-фабрики и GPU-as-a-Service',m:'≈4 МВт · цена за GPU-час',price:'за GPU-час',mw:'≈4 МВт IT',rev:'н/д',cl:'государство, Kaspi, наука, стартапы',term:'1-2 года',y:null,ylab:'определяется ценой GPU-часа, а не ценой мегаватта',ok:2,v:'Два суперкомпьютера в TOP500 (20,48 и 17,93 Пфлопс) - Казахстан первая страна Центральной Азии с двумя системами. AI-Farabium загружен на 100 %. Это слой, который зарабатывает в разы больше аренды площадки.'},
+ {n:'Корпоративные собственные ЦОД',m:'≈10 МВт · не рыночный',price:'не применимо',mw:'≈10 МВт IT',rev:'не рыночный',cl:'банки, недропользователи, ритейл',term:'капитальные активы',y:null,ylab:'не применимо',ok:2,v:'Более половины крупного бизнеса уже отошли от модели «только своя инфраструктура». Источник будущего спроса на колокейшн, а не конкурент ему.'}
+];
+var sg=$('seggrid'),sd=$('segdetail');
+SEG.forEach(function(s,i){
+  var b=document.createElement('button');
+  b.className='seg';b.type='button';b.setAttribute('aria-pressed',i===0?'true':'false');
+  b.innerHTML='<div class="n">'+s.n+'</div><div class="m">'+s.m+'</div>';
+  b.onclick=function(){pickSeg(i)};
+  sg.appendChild(b);
+});
+function pickSeg(i){
+  var bs=sg.querySelectorAll('.seg');
+  for(var j=0;j<bs.length;j++)bs[j].setAttribute('aria-pressed',j===i?'true':'false');
+  var s=SEG[i],MAXY=25,thr=16.25;
+  var meter='';
+  if(s.y===null){
+    meter='<div class="meter"><div class="lab">Доходность на входе</div><div class="tr" style="display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:12.5px">не применимо: сегмент не рыночный</div></div>';
+  }else{
+    meter='<div class="meter"><div class="lab">Доходность на входе против базовой ставки</div>'+
+      '<div class="tr"><div class="fl'+(s.ok===1?' ok':'')+'" style="width:'+(s.y/MAXY*100).toFixed(1)+'%"></div>'+
+      '<div class="thr" style="left:'+(thr/MAXY*100).toFixed(1)+'%"></div></div>'+
+      '<div style="position:relative;height:14px"><div class="thrlab" style="left:'+(thr/MAXY*100).toFixed(1)+'%">порог 16,25 %</div></div>'+
+      '<div class="scale"><span>0 %</span><span>25 %</span></div></div>';
+  }
+  var badge=s.ok===1?'<span class="badge ok">проходит порог</span>':(s.ok===0?'<span class="badge no">не проходит порог</span>':'<span class="badge na">вне инвестиционного контура</span>');
+  sd.innerHTML='<div><h3>'+s.n+'</h3>'+
+    '<dl class="kv"><dt>Цена</dt><dd>'+s.price+'</dd><dt>Мощность</dt><dd>'+s.mw+'</dd><dt>Оборот 2025</dt><dd>'+s.rev+'</dd><dt>Срок контракта</dt><dd>'+s.term+'</dd><dt>Заказчик</dt><dd style="font-family:var(--f-body);font-size:13.5px">'+s.cl+'</dd></dl>'+
+    '<div class="verdict">'+s.v+'</div></div>'+
+    '<div>'+meter+'<div style="font-size:12.5px;color:var(--ink-2);margin-top:10px">'+s.ylab+'</div>'+badge+'</div>';
+}
+pickSeg(0);
+
+/* ---------- 03 график ---------- */
+var YR=[2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036];
+var D={
+ cons:[24,26,53,90,118,145,168,191,209,228,242,256],
+ base:[24,30,88,207,304,402,472,542,591,640,685,730],
+ decl:[24,30,224,342,449,543,672,802,931,1100,1230,1320],
+ rev:[75,93,150,282,421,547,653,743,810,865,925,977],
+ ret:[23.9,30.1,37.6,47.1,54.1,62.2,71.6,82.3,90.5,99.6,109.5,120.5],
+ whl:[0,0,50,160,250,340,400,460,500,540,575,610],
+ en:['0,2','0,3','0,5','1,3','2,1','2,9','3,5','4,1','4,6','5,0','5,3','5,7']
+};
+var W=960,H=380,L=56,R=16,T=18,B=40,PW=W-L-R,PH=H-T-B,YMAX=1400;
+function x(i){return L+PW*i/(YR.length-1)}
+function y(v){return T+PH-PH*v/YMAX}
+function path(a){var p='';for(var i=0;i<a.length;i++)p+=(i?'L':'M')+x(i).toFixed(1)+' '+y(a[i]).toFixed(1);return p}
+var svg=$('chart'),ns='http://www.w3.org/2000/svg',s='';
+for(var g=0;g<=1400;g+=200){
+  s+='<line x1="'+L+'" y1="'+y(g)+'" x2="'+(W-R)+'" y2="'+y(g)+'" stroke="var(--grid)" stroke-width="1"/>';
+  s+='<text x="'+(L-9)+'" y="'+(y(g)+4)+'" text-anchor="end" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-3)">'+(g?g:0)+'</text>';
+}
+s+='<text x="'+L+'" y="'+(T-5)+'" font-size="11" font-family="IBM Plex Sans, sans-serif" fill="var(--ink-3)">МВт ИТ-мощности</text>';
+for(var i=0;i<YR.length;i++){
+  if(i%1===0)s+='<text x="'+x(i)+'" y="'+(H-B+20)+'" text-anchor="middle" font-size="11" font-family="IBM Plex Mono, monospace" fill="var(--ink-3)">'+(YR[i]+'').slice(2)+'</text>';
+}
+s+='<text x="'+L+'" y="'+(H-B+36)+'" font-size="10.5" font-family="IBM Plex Sans, sans-serif" fill="var(--ink-3)">год, 20__</text>';
+s+='<path d="'+path(D.decl)+'" fill="none" stroke="var(--ink-3)" stroke-width="2.4"/>';
+s+='<path d="'+path(D.cons)+'" fill="none" stroke="var(--ink-2)" stroke-width="2" stroke-dasharray="6 4"/>';
+s+='<path d="'+path(D.base)+'" fill="none" stroke="var(--accent)" stroke-width="3.2"/>';
+s+='<line id="cur" x1="0" y1="'+T+'" x2="0" y2="'+(T+PH)+'" stroke="var(--ink)" stroke-width="1" opacity="0"/>';
+s+='<circle id="pd" r="5" fill="var(--ink-3)" opacity="0"/><circle id="pb" r="5.5" fill="var(--accent)" opacity="0"/><circle id="pc" r="5" fill="var(--ink-2)" opacity="0"/>';
+s+='<text x="'+(x(11)-4)+'" y="'+(y(1320)-10)+'" text-anchor="end" font-size="11.5" font-family="IBM Plex Mono, monospace" fill="var(--ink-3)">1 320 заявлено</text>';
+s+='<text x="'+(x(11)-4)+'" y="'+(y(730)-10)+'" text-anchor="end" font-size="11.5" font-family="IBM Plex Mono, monospace" fill="var(--accent)">730 базовый</text>';
+s+='<text x="'+(x(11)-4)+'" y="'+(y(256)-10)+'" text-anchor="end" font-size="11.5" font-family="IBM Plex Mono, monospace" fill="var(--ink-2)">256 консерв.</text>';
+s+='<rect id="hit" x="'+L+'" y="'+T+'" width="'+PW+'" height="'+PH+'" fill="transparent"/>';
+svg.innerHTML=s;
+var ro=$('readout');
+function show(i){
+  var c=svg.getElementById('cur'),pd=svg.getElementById('pd'),pb=svg.getElementById('pb'),pc=svg.getElementById('pc');
+  c.setAttribute('x1',x(i));c.setAttribute('x2',x(i));c.setAttribute('opacity','.35');
+  pd.setAttribute('cx',x(i));pd.setAttribute('cy',y(D.decl[i]));pd.setAttribute('opacity','1');
+  pb.setAttribute('cx',x(i));pb.setAttribute('cy',y(D.base[i]));pb.setAttribute('opacity','1');
+  pc.setAttribute('cx',x(i));pc.setAttribute('cy',y(D.cons[i]));pc.setAttribute('opacity','1');
+  ro.innerHTML=
+   '<div><div class="k">ГОД</div><div class="v">'+YR[i]+'</div></div>'+
+   '<div><div class="k">МВт, базовый AP</div><div class="v">'+D.base[i]+'</div></div>'+
+   '<div><div class="k">в т. ч. розница / опт</div><div class="v">'+String(D.ret[i]).replace('.',',')+' / '+D.whl[i]+'</div></div>'+
+   '<div><div class="k">ВЫРУЧКА, $ МЛН</div><div class="v">'+D.rev[i]+'</div></div>'+
+   '<div><div class="k">ЭНЕРГИЯ, % ГЕНЕРАЦИИ 2025</div><div class="v">'+D.en[i]+' %</div></div>';
+}
+function at(ev){
+  var r=svg.getBoundingClientRect(),cx=(ev.touches?ev.touches[0].clientX:ev.clientX);
+  var vx=(cx-r.left)/r.width*W,i=Math.round((vx-L)/PW*(YR.length-1));
+  i=Math.max(0,Math.min(YR.length-1,i));show(i);
+}
+svg.addEventListener('mousemove',at);
+svg.addEventListener('touchstart',function(e){at(e);e.preventDefault()},{passive:false});
+svg.addEventListener('touchmove',function(e){at(e);e.preventDefault()},{passive:false});
+show(5);
+
+/* ---------- 05 воронка ---------- */
+var STEPS=[
+ {q:'27',t:'компаний получили информацию о площадках',d:'Казахстан направил материалы по «Долине ЦОДов» в Экибастузе 27 международным компаниям. Проект стартовал 21 января 2026 года: 200 га с расширением до 1 400, оператор - АО «Казахтелеком».',z:0},
+ {q:'20+',t:'заявили публичный интерес',d:'На AI & Digital Bridge в Астане 1 октября 2026 года о конкретном интересе говорил Уильям Форд (General Atlantic); участие G42 обсуждали глава G42 International Аль-Мансури и министр энергетики ОАЭ Аль-Мазруи. Заявленный интерес не содержит ни мегаваттов, ни цены.',z:0},
+ {q:'6',t:'дошли до переговоров на уровне главы государства',d:'C5+1 в Вашингтоне 6 ноября 2025 года, Шанхай 17 июля 2026 года (китайским инвесторам предложены подготовленные площадки, особый налоговый режим и доступ к суперкомпьютеру), одно окно KAZAKH INVEST с 28 августа 2026 года на мощность до 1 ГВт.',z:0},
+ {q:'1',t:'подписала обязывающий term sheet',d:'Firebird: пакет на $10 млрд от 15 июня 2026 года, 125 МВт, $1 млрд от «Казахтелекома», Firebird Labs Kazakhstan на базе Alem.ai. Главное, чего не даёт ничто другое: разрешение BIS Минторга США на экспорт чипов под 125 МВт и подтверждённое участие NVIDIA в следующей фазе.',z:0},
+ {q:'0',t:'договоров аренды мощности',d:'На 17 октября 2026 года публично не раскрыт ни один договор аренды мощности с указанием МВт, срока и цены за киловатт. Конверсия воронки - 3,7 %. Для целей модели AP заявленный интерес не засчитывается в спрос: экспортный сегмент идёт с дисконтом на исполнение.',z:1}
+];
+var st=$('steps'),sti=$('stepinfo');
+STEPS.forEach(function(p,i){
+  var b=document.createElement('button');
+  b.className='step'+(p.z?' zero':'');b.type='button';b.setAttribute('aria-pressed',i===4?'true':'false');
+  b.innerHTML='<div class="q">'+p.q+'</div><div class="t">'+p.t+'</div>';
+  b.onclick=function(){pickStep(i)};
+  st.appendChild(b);
+});
+function pickStep(i){
+  var bs=st.querySelectorAll('.step');
+  for(var j=0;j<bs.length;j++)bs[j].setAttribute('aria-pressed',j===i?'true':'false');
+  sti.innerHTML='<div class="t">'+STEPS[i].q+' · '+STEPS[i].t+'</div><div class="d">'+STEPS[i].d+'</div>';
+}
+pickStep(4);
+
+/* ---------- 06 слой ---------- */
+var LAY=[
+ {nm:'Аренда площадки (то, что продаёт Казахстан)',v:1.42,lab:'$1,42 млн',own:1,d:'Колокейшн-рента с мегаватта в год при $110-150/кВт/мес. На 300 МВт это $426 млн в год. Весь экспорт ИТ-услуг Казахстана в 2025 году - $1,14 млрд.'},
+ {nm:'GPU-as-a-Service, базовый уровень',v:12,lab:'$12 млн',own:0,d:'Продажа вычислений на том же мегаватте, нижний уровень по раскрытиям Nebius за 2026 год. Разница с арендой - 8,5 раза.'},
+ {nm:'GPU-as-a-Service, средний контракт 2026',v:20,lab:'$20 млн',own:0,d:'Средний контракт на продажу вычислений в 2026 году. На 300 МВт это около $6 млрд выручки владельца GPU против $426 млн арендной ренты владельца площадки. Разница 14 раз.'},
+ {nm:'GPU-as-a-Service, краткосрочный спот',v:40,lab:'$40 млн',own:0,d:'Короткая сделка на пике спроса. Разница с арендой - 28 раз. Переход в этот слой требует собственности на вычисления, а не новых мегаватт: экспортный контроль США на чипы, устаревание GPU за 3-4 года и предоплата (70 % сделок Nebius во 2-м квартале 2026 года были предоплачены).'}
+];
+var lr=$('layerrow'),ln=$('layernote');
+LAY.forEach(function(p,i){
+  var b=document.createElement('button');
+  b.className='layer'+(p.own?' own':'');b.type='button';b.setAttribute('aria-pressed',i===2?'true':'false');
+  var pc=p.v/40*100;
+  b.innerHTML='<span class="nm">'+p.nm+'</span><span class="tr"><span class="fl" style="width:'+pc.toFixed(1)+'%">'+(pc>24?'<span>'+p.lab+'</span>':'')+'</span>'+(pc>24?'':'<span class="outlab" style="left:calc('+pc.toFixed(1)+'% + 8px)">'+p.lab+'</span>')+'</span>';
+  b.onclick=function(){pickLay(i)};
+  lr.appendChild(b);
+});
+function pickLay(i){
+  var bs=lr.querySelectorAll('.layer');
+  for(var j=0;j<bs.length;j++)bs[j].setAttribute('aria-pressed',j===i?'true':'false');
+  ln.innerHTML=LAY[i].d;
+}
+pickLay(2);
+
+/* ---------- 08 выводы ---------- */
+var F=[
+ ['Под одним словом «ЦОД» живут шесть бизнесов, и доходность есть у одного','Разрыв цены между сегментами восьмикратный. Порог базовой ставки 16,25 % проходит только розничный колокейшн при capex до $10 млн/МВт. Экспортный AI-колокейшн даёт 4,2-12,0 % при любом capex.'],
+ ['Рынок надо измерять мегаваттами, и их 24','Вся установленная ИТ-мощность коммерческих ЦОД - 23,9 МВт при загрузке 91 %; свободно 2,2 МВт на всю страну. Все данные госорганов - в одном ЦОД на 6 МВт, то есть четверть рынка в одной точке отказа.'],
+ ['Заявлено 1 367 МВт, риск-взвешено 342 МВт','Определённый инвестор стоит за 567 МВт; 800 МВт - опцион расширения без подписанных документов. Риск-взвешенный пайплайн (342) и независимо построенный прогноз на 2030 год (340) расходятся на 0,5 %.'],
+ ['Заявленный график ввода физически неисполним','186 МВт в 2027 году плюс 109 МВт во 2-м кв. 2028 требуют 369 МВт на площадке при PUE 1,25 - против подстанции 215 МВт. Дефицит 154 МВт, или 72 % ёмкости.'],
+ ['Казахстан продаёт слой в 14 раз дешевле того, который продаёт владелец чипов','Аренда площадки - $1,42 млн с мегаватта в год, средний контракт на продажу вычислений - $20 млн. Переход во второй слой требует собственности на вычисления, а не новых мегаватт.']
+];
+var F2=[
+ ['Внутренний спрос вырастет вчетверо и закроет только четверть предложения','Снизу вверх по шести сегментам заказчиков: с 23,9 МВт (2025) до 100 МВт (2030) против базового предложения 402 МВт. Оставшиеся 302 МВт надо продать за пределы страны, а подтверждённый внешний спрос - около 11 МВт.'],
+ ['Президентский трек открыл двери, но не принёс ни одного договора аренды','27 компаний проинформированы, более 20 заявили интерес, шесть дошли до уровня главы государства, обязывающий term sheet подписала одна. Конверсия 3,7 %. При этом трек дал разрешение BIS на 125 МВт и участие NVIDIA в следующей фазе.'],
+ ['Восходящая оценка иностранного спроса - 350 МВт, а не гигаватт','Шесть классов пользователей дают 175 / 350 / 660 МВт к 2030 году. Центральная оценка расходится с пайплайном (342) и предложением (340) на 3 %. Заявленные 1 000-1 367 МВт не подтверждает ни один метод.'],
+ ['Из $15,2 млрд затрат в Казахстане остаётся 13,9 %','$10 млрд из $15,2 - импорт GPU и серверов. Без них локализация инженерного контура 40 %. Самая дефицитная позиция - охлаждение: годовая потребность проектов равна 129 % всего годового импорта страны по этой группе.'],
+ ['$3 млрд экспортной выручки - это не выручка Казахстана','Как колокейшн сумма требует $833/кВт/мес, то есть вдвое дороже Сингапура. Как продажа GPU-часов достижима, но принадлежит владельцу чипов. Доля Казахстана - рента $0,40-0,54 млрд в год при 300 МВт.'],
+ ['Тариф, который делает проект экономичным, политически неустойчив','Спецтариф 2,5 цента (11,3 ₸/кВт·ч) при тарифе Экибастузской ГРЭС-1 9,5 ₸ - это энергия почти по себестоимости. При полном развитии перекладывает на прочих потребителей около 2 ₸/кВт·ч.'],
+ ['ИИ-бум повышает концентрацию, а не снижает её','HHI растёт с 2 728 до 3 917 к 2030 году: один государственный оператор - 51 % мощности, второй игрок - 34 %. Место для независимого игрока остаётся только в розничных нишах Алматы и Астаны.'],
+ ['Казахстан проигрывает полтора года в очереди, а не в сроках','Армения ввела AI-фабрику в августе 2026 и идёт к 300 МВт к концу 2027-го, Казахстан введёт первые 50 МВт в июне 2027-го. Инвестор один и тот же. Узбекистан заявляет 500 МВт к 2032 году на ВИЭ и финансировании ЕБРР.'],
+ ['Главный риск - построить и не заполнить','Вероятность 4 из 5, ущерб 5 из 5: 100 МВт незаполненной ёмкости - это $1,2 млрд обесцененного non-IT capex. Единственная защита - законтрактованный предзаказ до начала стройки; у Akashi он есть, в публичном контуре «Долины ЦОДов» - нет.'],
+ ['300 МВт уже выделенной мощности заняты майнингом по цене в 8 раз ниже розничной','Перевод мегаватта из майнинга в AI-колокейшн увеличивает выручку владельца площадки в 2,7-3,7 раза, в розницу - в 6,8 раза. Самый быстрый источник мощности, не требующий новой генерации.']
+];
+var fw=$('finds');
+function renderFinds(all){
+  var list=all?F.concat(F2):F,h='';
+  for(var i=0;i<list.length;i++)h+='<div class="find"><div class="n">'+(i+1)+'</div><div><div class="t">'+list[i][0]+'</div><div class="d">'+list[i][1]+'</div></div></div>';
+  fw.innerHTML=h;
+}
+renderFinds(false);
+var mb=$('morebtn');
+mb.onclick=function(){
+  var on=mb.getAttribute('aria-pressed')==='true';
+  mb.setAttribute('aria-pressed',on?'false':'true');
+  mb.textContent=on?'Показать остальные 10 выводов':'Свернуть до пяти главных';
+  renderFinds(!on);
+};
+})();
+</script>
